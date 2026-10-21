@@ -241,7 +241,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.PacerRun;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.PacerPeloton.PacerRun;
 				PRODUCT_NAME = PacerRun;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -279,7 +279,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.PacerRun;
+				PRODUCT_BUNDLE_IDENTIFIER = com.dobbs.PacerPeloton.PacerRun;
 				PRODUCT_NAME = PacerRun;
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
