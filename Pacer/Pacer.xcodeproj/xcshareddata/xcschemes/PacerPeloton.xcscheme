@@ -15,23 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "1612C069307C5A36004D85FF"
-               BuildableName = "Pacer.app"
-               BlueprintName = "Pacer Watch Watch App"
-               ReferencedContainer = "container:Pacer.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
                BlueprintIdentifier = "16CBFF74307C189C00F296DF"
-               BuildableName = "Pacer.app"
-               BlueprintName = "Pacer"
+               BuildableName = "PacerPeloton.app"
+               BlueprintName = "PacerPeloton"
                ReferencedContainer = "container:Pacer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -59,9 +45,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1612C069307C5A36004D85FF"
-            BuildableName = "Pacer.app"
-            BlueprintName = "Pacer Watch Watch App"
+            BlueprintIdentifier = "16CBFF74307C189C00F296DF"
+            BuildableName = "PacerPeloton.app"
+            BlueprintName = "PacerPeloton"
             ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -76,9 +62,9 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "1612C069307C5A36004D85FF"
-            BuildableName = "Pacer.app"
-            BlueprintName = "Pacer Watch Watch App"
+            BlueprintIdentifier = "16CBFF74307C189C00F296DF"
+            BuildableName = "PacerPeloton.app"
+            BlueprintName = "PacerPeloton"
             ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

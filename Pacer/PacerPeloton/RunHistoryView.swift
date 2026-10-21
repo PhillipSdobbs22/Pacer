@@ -1,6 +1,6 @@
 //
 //  RunHistoryView.swift
-//  CalorieCardioClimber
+//  PacerPeloton
 //
 //  Displays a scrollable list of past running activities received
 //  from the Watch Pacer app. Each row shows key stats at a glance:

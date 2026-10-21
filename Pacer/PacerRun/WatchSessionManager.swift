@@ -1,6 +1,6 @@
 //
 //  WatchSessionManager.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Manages WCSession on the Watch side. Routes commands from
 //  the iPhone (start/stop HR streaming) to WorkoutManager.

@@ -1,6 +1,6 @@
 //
 //  PaceGaugeView.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  SwiftUI Canvas-based semicircle PaceGauge for Apple Watch.
 //  Maximized to fill the display. Outline arcs with colored fill

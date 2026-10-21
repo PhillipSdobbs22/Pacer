@@ -1,6 +1,6 @@
 //
 //  PaceSplitAnnouncer.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Announces audio pace splits every 3 minutes during a workout.
 //  Uses AVSpeechSynthesizer (available on watchOS 3+).

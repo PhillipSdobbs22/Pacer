@@ -1,6 +1,6 @@
 //
 //  PhoneConnectivityProvider.swift
-//  CalorieCardioClimber
+//  PacerPeloton
 //
 //  Receives live heart rate data and completed activity records
 //  from the Apple Watch via WatchConnectivity.

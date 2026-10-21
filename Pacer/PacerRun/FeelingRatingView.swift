@@ -1,6 +1,6 @@
 //
 //  FeelingRatingView.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Post-workout feeling rating — GREAT (3), NOT BAD (2), BAD (1).
 //  Must be selected before the workout is saved.

@@ -1,6 +1,6 @@
 //
 //  ReadinessCheck.swift
-//  HRMountainGhost
+//  PacerPeloton
 //
 //  Pre-ride readiness check model — Heikki Rusko orthostatic protocol.
 //  Captures sitting HR, standing HR, and easy-effort HR, then scores

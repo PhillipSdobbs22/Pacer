@@ -1,6 +1,6 @@
 //
 //  ReadinessStore.swift
-//  HRMountainGhost
+//  PacerPeloton
 //
 //  Persists readiness check history and maintains rolling baselines
 //  via exponential moving averages (EMA). First-check bootstrapping

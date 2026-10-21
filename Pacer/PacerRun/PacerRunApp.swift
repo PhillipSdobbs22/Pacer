@@ -1,14 +1,14 @@
 //
-//  PacerApp.swift
-//  CalorieCardioClimber Watch App
+//  PacerRunApp.swift
+//  PacerRun
 //
-//  App entry point for the PaceGauge standalone watch app.
+//  App entry point for the PacerRun standalone watch app.
 //
 
 import SwiftUI
 
 @main
-struct PacerApp: App {
+struct PacerRunApp: App {
     init() {
         // Activate WatchConnectivity so completed activities
         // transfer to the iPhone via transferUserInfo.

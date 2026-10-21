@@ -1,6 +1,6 @@
 //
 //  RunHistory.swift
-//  CalorieCardioClimber
+//  PacerPeloton
 //
 //  Model and store for running activity records received from
 //  the Watch Pacer app. Persists as JSON in the iPhone's

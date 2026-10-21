@@ -1,6 +1,6 @@
 //
 //  GPXExporter.swift
-//  CalorieCardioClimber
+//  PacerPeloton
 //
 //  Exports a run as a GPX file by querying Apple Health for the
 //  workout's GPS route and heart rate samples. The GPX includes
@@ -219,7 +219,7 @@ enum GPXExporter {
 
         var xml = """
         <?xml version="1.0" encoding="UTF-8"?>
-        <gpx creator="CalorieCardioClimber"
+        <gpx creator="PacerPeloton"
              version="1.1"
              xmlns="http://www.topografix.com/GPX/1/1"
              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"

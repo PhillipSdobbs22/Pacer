@@ -1,6 +1,6 @@
 //
 //  WorkoutManager.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Manages HKWorkoutSession on Apple Watch to stream live HR
 //  to the iPhone via WatchConnectivity.

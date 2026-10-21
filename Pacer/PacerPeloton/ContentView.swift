@@ -1301,7 +1301,7 @@ func rpeLabel(_ rpe: Int) -> String {
 // MARK: - Heart-rate freshness + Sync Watch
 
 /// Sync Watch: opens this app's page in iOS Settings
-/// (Settings → Apps → CalorieCardioClimber). Tapping "Health" there opens
+/// (Settings → Apps → PacerPeloton). Tapping "Health" there opens
 /// the app's Health data-access page, which pushes the Watch's latest
 /// heart rate to the iPhone. When the rider swipes back, the app pulls
 /// the new readings automatically.

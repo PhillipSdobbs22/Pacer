@@ -1,6 +1,6 @@
 //
 //  CadenceAnalyzer.swift
-//  CalorieCardioClimber
+//  PacerPeloton
 //
 //  Cross-activity SPM bucket analysis.
 //  Filters to GREAT-rated runs, buckets SPM-CCI pairs,

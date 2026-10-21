@@ -1,6 +1,6 @@
 //
 //  ReadinessCheckView.swift
-//  HRMountainGhost
+//  PacerPeloton
 //
 //  Guided pre-ride readiness check: 3-phase orthostatic protocol.
 //  Heart rate comes from Apple Health (Watch sync); readings are sorted

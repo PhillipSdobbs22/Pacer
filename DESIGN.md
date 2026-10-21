@@ -1,4 +1,4 @@
-# MountainGhost Design Spec
+# Pacer Design Spec
 
 Decisions made during planning. Mockups (private link): https://claude.ai/artifact/LxNHtwChNvzyM3mTXsAca6 (Main radar + profile, first-person view). Mockups are final; no further edits planned.
 

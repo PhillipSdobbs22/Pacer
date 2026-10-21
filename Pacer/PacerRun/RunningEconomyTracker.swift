@@ -1,6 +1,6 @@
 //
 //  RunningEconomyTracker.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Tracks Running Economy via Cardiac Cost Index (CCI = HR ÷ Speed).
 //  Lower CCI = better economy (less cardiac effort per unit of speed).

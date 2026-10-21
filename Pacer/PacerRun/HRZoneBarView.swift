@@ -1,6 +1,6 @@
 //
 //  HRZoneBarView.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  5-segment heart rate zone bar matching Apple's watchOS workout
 //  zone colors.  A white triangular cursor marks the current HR

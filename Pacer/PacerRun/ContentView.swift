@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  Standalone PaceGauge UI for Apple Watch.
 //  Five screens: settings → gauge → stopped → feeling → summary.
@@ -300,7 +300,7 @@ struct ContentView: View {
     private var summaryView: some View {
         ScrollView {
             VStack(spacing: 8) {
-                Text("CalorieCardioClimber Complete")
+                Text("PacerRun Complete")
                     .font(.system(size: 16, weight: .bold,
                                   design: .rounded))
                     .foregroundColor(.white)

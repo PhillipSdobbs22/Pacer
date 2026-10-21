@@ -1,6 +1,6 @@
 //
 //  WatchPaceViewModel.swift
-//  CalorieCardioClimber Watch App
+//  PacerRun
 //
 //  ViewModel for PaceGauge on Apple Watch.
 //  Owns its own HKWorkoutSession so this app gets wrist-raise
