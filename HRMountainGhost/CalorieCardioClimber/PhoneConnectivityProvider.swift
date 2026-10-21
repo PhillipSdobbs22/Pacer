@@ -2,8 +2,8 @@
 //  PhoneConnectivityProvider.swift
 //  CalorieCardioClimber
 //
-//  Receives live heart rate data from the Apple Watch
-//  via WatchConnectivity and exposes it to the iPhone UI.
+//  Receives live heart rate data and completed activity records
+//  from the Apple Watch via WatchConnectivity.
 //
 
 import Foundation
@@ -99,6 +99,28 @@ extension PhoneConnectivityProvider: WCSessionDelegate {
         Task { @MainActor in
             PhoneConnectivityProvider.shared.latestHR = hr
             PhoneConnectivityProvider.shared.latestDate = date
+        }
+    }
+
+    /// Receive completed activity records from the Watch (transferUserInfo).
+    /// Guaranteed delivery — queued even when iPhone is not reachable.
+    nonisolated func session(
+        _ session: WCSession,
+        didReceiveUserInfo userInfo: [String: Any]
+    ) {
+        guard let type = userInfo["type"] as? String,
+              type == "runActivity" else { return }
+
+        guard let activityData = userInfo["activity"] as? [String: Any] else {
+            print("[Phone] runActivity missing activity payload")
+            return
+        }
+
+        Task { @MainActor in
+            if let record = RunStore.record(from: activityData) {
+                RunStore.shared.save(record)
+                print("[Phone] Run saved: \(record.date)")
+            }
         }
     }
 }

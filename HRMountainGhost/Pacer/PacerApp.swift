@@ -1,15 +1,17 @@
 //
-//  CalorieCardioClimber_WatchApp.swift
+//  PacerApp.swift
 //  CalorieCardioClimber Watch App
 //
-//  App entry point — activates WatchConnectivity on launch.
+//  App entry point for the PaceGauge standalone watch app.
 //
 
 import SwiftUI
 
 @main
-struct CalorieCardioClimber_Watch_AppApp: App {
+struct PacerApp: App {
     init() {
+        // Activate WatchConnectivity so completed activities
+        // transfer to the iPhone via transferUserInfo.
         WatchSessionManager.shared.activate()
     }
 

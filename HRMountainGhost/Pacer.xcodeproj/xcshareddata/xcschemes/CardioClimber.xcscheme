@@ -16,9 +16,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "16CBFF74307C189C00F296DF"
-               BuildableName = "CalorieCardioClimber.app"
-               BlueprintName = "CalorieCardioClimber"
-               ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+               BuildableName = "Pacer.app"
+               BlueprintName = "Pacer"
+               ReferencedContainer = "container:Pacer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -46,9 +46,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "16CBFF74307C189C00F296DF"
-            BuildableName = "CalorieCardioClimber.app"
-            BlueprintName = "CalorieCardioClimber"
-            ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+            BuildableName = "Pacer.app"
+            BlueprintName = "Pacer"
+            ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -63,9 +63,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "16CBFF74307C189C00F296DF"
-            BuildableName = "CalorieCardioClimber.app"
-            BlueprintName = "CalorieCardioClimber"
-            ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+            BuildableName = "Pacer.app"
+            BlueprintName = "Pacer"
+            ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

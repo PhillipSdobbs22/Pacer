@@ -87,7 +87,6 @@ struct HRZoneBarView: View {
                 let totalW = geo.size.width
                 let barH: CGFloat = 18
                 let gap: CGFloat = 2
-                let segW = (totalW - gap * 4) / 5
 
                 ZStack(alignment: .topLeading) {
                     // Segment rectangles

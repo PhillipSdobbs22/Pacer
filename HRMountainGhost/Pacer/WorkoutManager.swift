@@ -51,8 +51,8 @@ final class WorkoutManager: NSObject, ObservableObject {
         guard session == nil else { return }
 
         let config = HKWorkoutConfiguration()
-        config.activityType = .cycling
-        config.locationType = .indoor
+        config.activityType = .running
+        config.locationType = .outdoor
 
         do {
             let ws = try HKWorkoutSession(

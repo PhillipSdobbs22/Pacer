@@ -26,14 +26,20 @@ struct ContentView: View {
 
             HistoryTab(vm: vm)
                 .tabItem {
-                    Image(systemName: "clock.arrow.circlepath")
-                    Text("History")
+                    Image(systemName: "list.bullet.rectangle.fill")
+                    Text("Rides")
                 }
 
             SettingsTab(vm: vm)
                 .tabItem {
                     Image(systemName: "gearshape.fill")
                     Text("Settings")
+                }
+
+            RunHistoryTab(runStore: RunStore.shared)
+                .tabItem {
+                    Image(systemName: "figure.run")
+                    Text("Runs")
                 }
         }
         .tint(yellow)
@@ -760,7 +766,7 @@ struct HistoryTab: View {
                     }
                 }
             }
-            .navigationTitle("History")
+            .navigationTitle("Rides")
             .toolbarColorScheme(.dark, for: .navigationBar)
             .onAppear { reloadRides() }
         }

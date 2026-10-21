@@ -17,8 +17,8 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "1612C069307C5A36004D85FF"
                BuildableName = "Pacer.app"
-               BlueprintName = "CalorieCardioClimber Watch Watch App"
-               ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+               BlueprintName = "Pacer Watch Watch App"
+               ReferencedContainer = "container:Pacer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
          <BuildActionEntry
@@ -30,9 +30,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "16CBFF74307C189C00F296DF"
-               BuildableName = "CalorieCardioClimber.app"
-               BlueprintName = "CalorieCardioClimber"
-               ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+               BuildableName = "Pacer.app"
+               BlueprintName = "Pacer"
+               ReferencedContainer = "container:Pacer.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -61,8 +61,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1612C069307C5A36004D85FF"
             BuildableName = "Pacer.app"
-            BlueprintName = "CalorieCardioClimber Watch Watch App"
-            ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+            BlueprintName = "Pacer Watch Watch App"
+            ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -78,8 +78,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "1612C069307C5A36004D85FF"
             BuildableName = "Pacer.app"
-            BlueprintName = "CalorieCardioClimber Watch Watch App"
-            ReferencedContainer = "container:CalorieCardioClimber.xcodeproj">
+            BlueprintName = "Pacer Watch Watch App"
+            ReferencedContainer = "container:Pacer.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>
