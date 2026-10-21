@@ -1,0 +1,64 @@
+[
+  {
+    "id": "3CD4D5AA-B2DE-4059-A8E8-2DE42D9BB6FF",
+    "date": "2026-10-21T14:49:30Z",
+    "elapsedSeconds": 1540.0,
+    "elapsedFormatted": "0:25:40",
+    "distanceMiles": 2.9544,
+    "paceSecondsPerMile": 521.3,
+    "paceFormatted": "8:41",
+    "avgSpeedMPH": 6.91,
+    "heartRateZone": 4,
+    "avgStepsPerMin": 186.0,
+    "totalSteps": 4774,
+    "activeCalories": 295.4,
+    "maxHR": 172,
+    "goalPaceMPH": 6.91,
+    "feelingRating": 3,
+    "runningEconomy": {
+      "overallCCI": 22.6,
+      "bestIntervalCCI": 19.74,
+      "bestIntervalNumber": 1,
+      "worstIntervalCCI": 24.19,
+      "worstIntervalNumber": 8,
+      "trend": "declining",
+      "intervalCount": 8,
+      "overallAvgSPM": 186.0,
+      "spmCCIPairs": [
+        {
+          "spm": 186.0,
+          "cci": 19.74
+        },
+        {
+          "spm": 186.0,
+          "cci": 20.71
+        },
+        {
+          "spm": 186.0,
+          "cci": 22.99
+        },
+        {
+          "spm": 186.0,
+          "cci": 22.95
+        },
+        {
+          "spm": 186.0,
+          "cci": 23.48
+        },
+        {
+          "spm": 186.0,
+          "cci": 24.16
+        },
+        {
+          "spm": 186.0,
+          "cci": 22.6
+        },
+        {
+          "spm": 186.0,
+          "cci": 24.19
+        }
+      ]
+    },
+    "weightNormalizedCCI": null
+  }
+]

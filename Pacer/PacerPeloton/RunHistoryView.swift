@@ -5,7 +5,8 @@
 //  Displays a scrollable list of past running activities received
 //  from the Watch Pacer app. Each row shows key stats at a glance:
 //  Date, Feeling, CCI, SPM, Elapsed, HR Zone, Speed, Distance, Pace.
-//  A header card shows the cross-activity optimal cadence zone.
+//  A header card shows the combined optimal cadence zone
+//  (cross-run buckets + within-run delta analysis).
 //  Each row has a share button to export as GPX for Strava/Garmin/etc.
 //
 
@@ -92,6 +93,29 @@ struct OptimalCadenceCard: View {
     private let cyan = Color.cyan
     private let cardBG = Color(white: 0.10)
 
+    /// The best recommendation: combined if available, else cross-run, else delta.
+    private var displayBucket: CadenceBucket? {
+        analysis.combinedOptimalBucket ?? analysis.optimalBucket ?? analysis.deltaOptimalBucket
+    }
+
+    /// Label describing which signal is driving the recommendation.
+    private var signalLabel: String {
+        if analysis.combinedOptimalBucket != nil {
+            if analysis.optimalBucket != nil && analysis.deltaOptimalBucket != nil {
+                return "Cross-run + Delta"
+            } else if analysis.deltaOptimalBucket != nil {
+                return "Delta analysis"
+            } else {
+                return "Cross-run"
+            }
+        } else if analysis.optimalBucket != nil {
+            return "Cross-run"
+        } else if analysis.deltaOptimalBucket != nil {
+            return "Delta analysis"
+        }
+        return ""
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             // Title row
@@ -104,36 +128,41 @@ struct OptimalCadenceCard: View {
                 Spacer()
             }
 
-            if let optimal = analysis.optimalBucket {
+            if let optimal = displayBucket {
                 // Big cadence range
                 Text("\(Int(optimal.rangeLow))–\(Int(optimal.rangeHigh)) SPM")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .foregroundStyle(cyan)
 
-                // Avg CCI in that bucket
-                Text(String(format: "Avg CCI: %.1f  ·  %d intervals",
-                            optimal.avgCCI, optimal.sampleCount))
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.7))
+                // Detail line: CCI and/or gradient
+                detailLine(for: optimal)
 
-                // Confidence badge
-                confidenceBadge
+                // Confidence badge + signal source
+                HStack(spacing: 8) {
+                    confidenceBadge
+                    if !signalLabel.isEmpty {
+                        Text(signalLabel)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.4))
+                    }
+                }
             } else {
                 // Not enough data yet
                 Text("—")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white.opacity(0.3))
-                Text("Complete more GREAT-rated runs to find your optimal cadence.")
+                Text("Complete more runs to find your optimal cadence.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
             }
 
-            // Stats line
-            HStack(spacing: 16) {
+            // Stats line — now includes delta metrics
+            HStack(spacing: 12) {
                 miniStat(label: "GREAT runs", value: "\(analysis.totalGreatRuns)")
                 miniStat(label: "Intervals", value: "\(analysis.totalPairsAnalyzed)")
-                miniStat(label: "Buckets", value: "\(analysis.buckets.count)")
+                miniStat(label: "Deltas", value: "\(analysis.totalDeltaPairs)")
+                miniStat(label: "Eligible", value: "\(analysis.eligibleRunCount)")
             }
             .padding(.top, 2)
         }
@@ -146,6 +175,32 @@ struct OptimalCadenceCard: View {
                         .strokeBorder(cyan.opacity(0.3), lineWidth: 1)
                 )
         )
+    }
+
+    // MARK: - Detail Line
+
+    @ViewBuilder
+    private func detailLine(for bucket: CadenceBucket) -> some View {
+        if bucket.sampleCount > 0 && bucket.avgCCI > 0 {
+            // Has cross-run CCI data
+            if let gradient = bucket.avgGradient {
+                Text(String(format: "Avg CCI: %.1f  ·  %d intervals  ·  slope: %+.2f",
+                            bucket.avgCCI, bucket.sampleCount, gradient))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+            } else {
+                Text(String(format: "Avg CCI: %.1f  ·  %d intervals",
+                            bucket.avgCCI, bucket.sampleCount))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.7))
+            }
+        } else if let gradient = bucket.avgGradient {
+            // Delta-only bucket (no cross-run data yet)
+            Text(String(format: "Slope: %+.2f  ·  %d delta pairs",
+                        gradient, bucket.deltaCount))
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.7))
+        }
     }
 
     // MARK: - Confidence Badge

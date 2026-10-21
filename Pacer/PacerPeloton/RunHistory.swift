@@ -66,6 +66,11 @@ final class RunStore: ObservableObject {
     private init() { load() }
 
     func load() {
+        // If no persisted history exists, seed from bundled data
+        if !FileManager.default.fileExists(atPath: fileURL.path) {
+            seedIfNeeded()
+        }
+
         guard let data = try? Data(contentsOf: fileURL) else {
             runs = []
             return
@@ -78,6 +83,21 @@ final class RunStore: ObservableObject {
             return
         }
         runs = decoded.sorted { $0.date > $1.date }
+    }
+
+    /// On first launch, copy bundled seed data to Documents.
+    private func seedIfNeeded() {
+        guard let seedURL = Bundle.main.url(
+            forResource: "seed_run_history", withExtension: "json") else {
+            print("[RunStore] No seed file in bundle")
+            return
+        }
+        do {
+            try FileManager.default.copyItem(at: seedURL, to: fileURL)
+            print("[RunStore] Seeded run history from bundle")
+        } catch {
+            print("[RunStore] Seed copy failed: \(error)")
+        }
     }
 
     func save(_ record: RunRecord) {
