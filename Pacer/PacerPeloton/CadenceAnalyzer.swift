@@ -2,13 +2,31 @@
 //  CadenceAnalyzer.swift
 //  PacerPeloton
 //
-//  Cross-activity SPM bucket analysis with within-run delta analysis.
-//  Filters to GREAT-rated runs for absolute CCI buckets, and
-//  GREAT + NOT BAD runs for interval-to-interval delta gradients.
-//  Merges both signals to identify the optimal cadence zone faster.
+//  Cross-activity SPM bucket analysis with pace-band segmentation.
+//  Splits intervals into Walking (≤4 mph) and Jogging (>4 mph)
+//  pace bands, then finds the optimal SPM for lowest CCI in each.
+//  Uses ALL activities (no rating filter) — CCI is objective.
+//  Within-run delta analysis refines the recommendation when
+//  cross-run data is sparse.
 //
 
 import Foundation
+
+// MARK: - Pace Band
+
+/// Pace band for segmenting intervals.
+enum PaceBand: String, CaseIterable {
+    case walking = "Walking"       // ≤ 4.0 mph
+    case jogging = "Jogging"       // > 4.0 mph
+
+    /// The speed threshold separating walking from jogging.
+    static let threshold: Double = 4.0
+
+    /// Classify an interval by its average speed.
+    static func classify(_ speedMPH: Double) -> PaceBand {
+        speedMPH <= threshold ? .walking : .jogging
+    }
+}
 
 // MARK: - Result types
 
@@ -36,7 +54,7 @@ struct CadenceBucket: Identifiable {
     let rangeLow: Double
     let rangeHigh: Double
     let avgCCI: Double
-    let avgFeeling: Double      // always 3.0 for GREAT-only cross-run
+    let avgFeeling: Double      // kept for compatibility
     let sampleCount: Int
 
     // Delta analysis fields
@@ -44,20 +62,35 @@ struct CadenceBucket: Identifiable {
     let deltaCount: Int         // number of qualifying delta pairs
 }
 
-/// The full result of a combined cadence analysis.
-struct CadenceAnalysisResult {
-    // Cross-run analysis (existing)
+/// Analysis result for a single pace band.
+struct PaceBandResult {
+    let paceBand: PaceBand
     let buckets: [CadenceBucket]            // sorted by rangeLow
     let optimalBucket: CadenceBucket?       // lowest avgCCI (cross-run)
     let confidence: CadenceConfidence
-    let totalGreatRuns: Int                 // GREAT-rated runs with RE data
-    let totalPairsAnalyzed: Int             // SPM-CCI pairs from GREAT runs
-
-    // Delta analysis (new)
-    let totalDeltaPairs: Int                // qualifying delta pairs across all eligible runs
-    let eligibleRunCount: Int               // GREAT + NOT BAD runs with deltas
-    let deltaOptimalBucket: CadenceBucket?  // optimal from gradient analysis alone
+    let totalRuns: Int                      // runs with intervals in this band
+    let totalPairsAnalyzed: Int             // SPM-CCI pairs in this band
+    let totalDeltaPairs: Int                // qualifying delta pairs
+    let deltaOptimalBucket: CadenceBucket?  // optimal from gradient analysis
     let combinedOptimalBucket: CadenceBucket? // merged recommendation
+}
+
+/// The full result of a combined cadence analysis.
+struct CadenceAnalysisResult {
+    // Per-pace-band results
+    let walkingResult: PaceBandResult
+    let joggingResult: PaceBandResult
+
+    // Legacy compatibility — overall combined (all intervals)
+    let buckets: [CadenceBucket]            // sorted by rangeLow
+    let optimalBucket: CadenceBucket?       // lowest avgCCI (cross-run)
+    let confidence: CadenceConfidence
+    let totalGreatRuns: Int                 // now: total runs with RE data
+    let totalPairsAnalyzed: Int             // SPM-CCI pairs from all runs
+    let totalDeltaPairs: Int                // qualifying delta pairs
+    let eligibleRunCount: Int               // runs with deltas
+    let deltaOptimalBucket: CadenceBucket?
+    let combinedOptimalBucket: CadenceBucket?
 }
 
 // MARK: - Analyzer
@@ -70,56 +103,128 @@ enum CadenceAnalyzer {
     /// Minimum SPM change between intervals to count as a meaningful shift.
     private static let minDeltaSPM: Double = 3.0
 
-    /// Analyze all runs in the store and return the optimal cadence zone.
+    /// Analyze all runs and return optimal cadence zones per pace band.
     static func analyze(runs: [RunRecord]) -> CadenceAnalysisResult {
 
         // ──────────────────────────────────────────────
-        // 1. CROSS-RUN ANALYSIS (GREAT runs only)
+        // 1. COLLECT ALL INTERVALS (no rating filter)
         // ──────────────────────────────────────────────
 
-        let greatRuns = runs.filter { $0.feelingRating == 3 && $0.runningEconomy != nil }
+        let runsWithRE = runs.filter { $0.runningEconomy != nil }
 
+        // Separate pairs by pace band
+        var walkingPairs: [(spm: Double, cci: Double)] = []
+        var joggingPairs: [(spm: Double, cci: Double)] = []
         var allPairs: [(spm: Double, cci: Double)] = []
-        for run in greatRuns {
+
+        // Track which runs contribute to each band
+        var walkingRunIDs = Set<UUID>()
+        var joggingRunIDs = Set<UUID>()
+
+        for run in runsWithRE {
             guard let re = run.runningEconomy else { continue }
             for pair in re.spmCCIPairs {
-                if pair.spm >= 100 && pair.spm <= 250 && pair.cci > 0 {
-                    allPairs.append((spm: pair.spm, cci: pair.cci))
+                guard pair.spm >= 100 && pair.spm <= 250 && pair.cci > 0 else { continue }
+                allPairs.append((spm: pair.spm, cci: pair.cci))
+
+                // Classify by speed if available; fall back to run-level avg
+                let speed = pair.avgSpeedMPH ?? run.avgSpeedMPH
+                let band = PaceBand.classify(speed)
+
+                switch band {
+                case .walking:
+                    walkingPairs.append((spm: pair.spm, cci: pair.cci))
+                    walkingRunIDs.insert(run.id)
+                case .jogging:
+                    joggingPairs.append((spm: pair.spm, cci: pair.cci))
+                    joggingRunIDs.insert(run.id)
                 }
             }
         }
 
         // ──────────────────────────────────────────────
-        // 2. DELTA ANALYSIS (GREAT + NOT BAD runs)
+        // 2. DELTA ANALYSIS (all runs, segmented by band)
         // ──────────────────────────────────────────────
 
-        let eligibleRuns = runs.filter {
-            $0.feelingRating >= 2 && $0.runningEconomy != nil
-        }
-
+        var walkingDeltas: [IntervalDelta] = []
+        var joggingDeltas: [IntervalDelta] = []
         var allDeltas: [IntervalDelta] = []
-        for run in eligibleRuns {
-            let deltas = extractDeltas(from: run)
-            allDeltas.append(contentsOf: deltas)
+
+        for run in runsWithRE {
+            let segmented = extractDeltasSegmented(from: run)
+            walkingDeltas.append(contentsOf: segmented.walking)
+            joggingDeltas.append(contentsOf: segmented.jogging)
+            allDeltas.append(contentsOf: segmented.walking)
+            allDeltas.append(contentsOf: segmented.jogging)
         }
 
         // ──────────────────────────────────────────────
-        // 3. BUILD UNIFIED BUCKETS
+        // 3. BUILD PER-BAND RESULTS
         // ──────────────────────────────────────────────
 
-        // Determine global SPM range from both data sources
-        var allSPMValues: [Double] = allPairs.map(\.spm)
-        allSPMValues.append(contentsOf: allDeltas.map(\.midpointSPM))
+        let walkingResult = buildBandResult(
+            band: .walking,
+            pairs: walkingPairs,
+            deltas: walkingDeltas,
+            runCount: walkingRunIDs.count
+        )
+
+        let joggingResult = buildBandResult(
+            band: .jogging,
+            pairs: joggingPairs,
+            deltas: joggingDeltas,
+            runCount: joggingRunIDs.count
+        )
+
+        // ──────────────────────────────────────────────
+        // 4. LEGACY OVERALL RESULT (for backward compat)
+        // ──────────────────────────────────────────────
+
+        let overallResult = buildBandResult(
+            band: .jogging,  // placeholder — not used for band label
+            pairs: allPairs,
+            deltas: allDeltas,
+            runCount: runsWithRE.count
+        )
+
+        return CadenceAnalysisResult(
+            walkingResult: walkingResult,
+            joggingResult: joggingResult,
+            buckets: overallResult.buckets,
+            optimalBucket: overallResult.optimalBucket,
+            confidence: overallResult.confidence,
+            totalGreatRuns: runsWithRE.count,
+            totalPairsAnalyzed: allPairs.count,
+            totalDeltaPairs: allDeltas.count,
+            eligibleRunCount: runsWithRE.count,
+            deltaOptimalBucket: overallResult.deltaOptimalBucket,
+            combinedOptimalBucket: overallResult.combinedOptimalBucket
+        )
+    }
+
+    // MARK: - Build Band Result
+
+    /// Build a complete analysis result for one pace band.
+    private static func buildBandResult(
+        band: PaceBand,
+        pairs: [(spm: Double, cci: Double)],
+        deltas: [IntervalDelta],
+        runCount: Int
+    ) -> PaceBandResult {
+
+        // Determine SPM range
+        var allSPMValues: [Double] = pairs.map(\.spm)
+        allSPMValues.append(contentsOf: deltas.map(\.midpointSPM))
 
         guard !allSPMValues.isEmpty else {
-            return CadenceAnalysisResult(
+            return PaceBandResult(
+                paceBand: band,
                 buckets: [],
                 optimalBucket: nil,
                 confidence: .insufficient,
-                totalGreatRuns: greatRuns.count,
+                totalRuns: runCount,
                 totalPairsAnalyzed: 0,
                 totalDeltaPairs: 0,
-                eligibleRunCount: eligibleRuns.count,
                 deltaOptimalBucket: nil,
                 combinedOptimalBucket: nil
             )
@@ -135,32 +240,23 @@ enum CadenceAnalyzer {
         while low < bucketCeiling {
             let high = low + bucketWidth
 
-            // Cross-run pairs in this bucket
-            let pairsInBucket = allPairs.filter { $0.spm >= low && $0.spm < high }
-            let avgCCI: Double
-            if pairsInBucket.isEmpty {
-                avgCCI = 0
-            } else {
-                avgCCI = pairsInBucket.map(\.cci).reduce(0, +) / Double(pairsInBucket.count)
-            }
+            let pairsInBucket = pairs.filter { $0.spm >= low && $0.spm < high }
+            let avgCCI: Double = pairsInBucket.isEmpty
+                ? 0
+                : pairsInBucket.map(\.cci).reduce(0, +) / Double(pairsInBucket.count)
 
-            // Delta pairs in this bucket (by midpointSPM)
-            let deltasInBucket = allDeltas.filter { $0.midpointSPM >= low && $0.midpointSPM < high }
-            let avgGradient: Double?
-            if deltasInBucket.isEmpty {
-                avgGradient = nil
-            } else {
-                avgGradient = deltasInBucket.map(\.gradient).reduce(0, +) / Double(deltasInBucket.count)
-            }
+            let deltasInBucket = deltas.filter { $0.midpointSPM >= low && $0.midpointSPM < high }
+            let avgGradient: Double? = deltasInBucket.isEmpty
+                ? nil
+                : deltasInBucket.map(\.gradient).reduce(0, +) / Double(deltasInBucket.count)
 
-            // Only create bucket if it has any data
             if !pairsInBucket.isEmpty || !deltasInBucket.isEmpty {
                 buckets.append(CadenceBucket(
                     id: "\(Int(low))-\(Int(high))",
                     rangeLow: low,
                     rangeHigh: high,
                     avgCCI: avgCCI,
-                    avgFeeling: 3.0,
+                    avgFeeling: 0,
                     sampleCount: pairsInBucket.count,
                     avgGradient: avgGradient,
                     deltaCount: deltasInBucket.count
@@ -172,142 +268,128 @@ enum CadenceAnalyzer {
 
         let sortedBuckets = buckets.sorted { $0.rangeLow < $1.rangeLow }
 
-        // ──────────────────────────────────────────────
-        // 4. FIND OPTIMAL BUCKETS
-        // ──────────────────────────────────────────────
-
         // Cross-run optimal: lowest avgCCI among buckets with ≥ 3 samples
         let crossRunOptimal = sortedBuckets
             .filter { $0.sampleCount >= 3 }
             .min(by: { $0.avgCCI < $1.avgCCI })
 
-        // Delta optimal: bucket where gradient is closest to zero (with ≥ 3 delta pairs)
+        // Delta optimal: closest gradient to zero with ≥ 3 delta pairs
         let deltaOptimal = sortedBuckets
             .filter { $0.deltaCount >= 3 && $0.avgGradient != nil }
             .min(by: { abs($0.avgGradient!) < abs($1.avgGradient!) })
 
-        // Combined optimal: merge both signals based on data availability
         let combinedOptimal = determineCombinedOptimal(
             crossRunOptimal: crossRunOptimal,
             deltaOptimal: deltaOptimal,
-            greatRunCount: greatRuns.count,
-            totalDeltas: allDeltas.count,
+            runCount: runCount,
+            totalDeltas: deltas.count,
             buckets: sortedBuckets
         )
 
-        // ──────────────────────────────────────────────
-        // 5. CONFIDENCE TIER
-        // ──────────────────────────────────────────────
-
         let confidence = determineConfidence(
-            greatRunCount: greatRuns.count,
-            deltaCount: allDeltas.count
+            runCount: runCount,
+            deltaCount: deltas.count
         )
 
-        return CadenceAnalysisResult(
+        return PaceBandResult(
+            paceBand: band,
             buckets: sortedBuckets,
             optimalBucket: crossRunOptimal,
             confidence: confidence,
-            totalGreatRuns: greatRuns.count,
-            totalPairsAnalyzed: allPairs.count,
-            totalDeltaPairs: allDeltas.count,
-            eligibleRunCount: eligibleRuns.count,
+            totalRuns: runCount,
+            totalPairsAnalyzed: pairs.count,
+            totalDeltaPairs: deltas.count,
             deltaOptimalBucket: deltaOptimal,
             combinedOptimalBucket: combinedOptimal
         )
     }
 
-    // MARK: - Delta Extraction
+    // MARK: - Delta Extraction (Segmented)
 
-    /// Extract qualifying interval-to-interval deltas from a single run.
-    private static func extractDeltas(from run: RunRecord) -> [IntervalDelta] {
-        guard let re = run.runningEconomy else { return [] }
+    /// Extract deltas from a run, segmented into walking and jogging bands.
+    private static func extractDeltasSegmented(
+        from run: RunRecord
+    ) -> (walking: [IntervalDelta], jogging: [IntervalDelta]) {
+        guard let re = run.runningEconomy else { return ([], []) }
         let pairs = re.spmCCIPairs
+        guard pairs.count >= 2 else { return ([], []) }
 
-        // Need at least 2 intervals
-        guard pairs.count >= 2 else { return [] }
-
-        var deltas: [IntervalDelta] = []
+        var walkingDeltas: [IntervalDelta] = []
+        var joggingDeltas: [IntervalDelta] = []
 
         for i in 0..<(pairs.count - 1) {
             let from = pairs[i]
             let to = pairs[i + 1]
 
-            // Sanity checks
             guard from.spm >= 100 && from.spm <= 250 && from.cci > 0,
                   to.spm >= 100 && to.spm <= 250 && to.cci > 0 else {
                 continue
             }
 
             let deltaSPM = to.spm - from.spm
-
-            // Filter: only meaningful cadence shifts
             guard abs(deltaSPM) >= minDeltaSPM else { continue }
 
             let deltaCCI = to.cci - from.cci
             let midpoint = (from.spm + to.spm) / 2.0
             let gradient = deltaCCI / deltaSPM
 
-            deltas.append(IntervalDelta(
+            let delta = IntervalDelta(
                 fromSPM: from.spm,
                 toSPM: to.spm,
                 deltaSPM: deltaSPM,
                 deltaCCI: deltaCCI,
                 midpointSPM: midpoint,
                 gradient: gradient
-            ))
+            )
+
+            // Classify delta by the average speed of both intervals
+            let fromSpeed = from.avgSpeedMPH ?? run.avgSpeedMPH
+            let toSpeed = to.avgSpeedMPH ?? run.avgSpeedMPH
+            let avgSpeed = (fromSpeed + toSpeed) / 2.0
+            let band = PaceBand.classify(avgSpeed)
+
+            switch band {
+            case .walking: walkingDeltas.append(delta)
+            case .jogging: joggingDeltas.append(delta)
+            }
         }
 
-        return deltas
+        return (walking: walkingDeltas, jogging: joggingDeltas)
     }
 
     // MARK: - Combined Optimal
 
-    /// Merge cross-run and delta signals to pick the best combined recommendation.
     private static func determineCombinedOptimal(
         crossRunOptimal: CadenceBucket?,
         deltaOptimal: CadenceBucket?,
-        greatRunCount: Int,
+        runCount: Int,
         totalDeltas: Int,
         buckets: [CadenceBucket]
     ) -> CadenceBucket? {
 
-        // Both nil → no recommendation
         guard crossRunOptimal != nil || deltaOptimal != nil else {
             return nil
         }
 
-        // Only one signal available → use it
         if crossRunOptimal == nil { return deltaOptimal }
         if deltaOptimal == nil { return crossRunOptimal }
 
-        // Both available — weight depends on data volume
         let crossRun = crossRunOptimal!
         let delta = deltaOptimal!
 
-        // If they agree (same bucket), that's the answer
         if crossRun.id == delta.id {
             return crossRun
         }
 
-        // Priority logic based on data maturity
-        if greatRunCount >= 10 {
-            // Cross-run has high confidence — it leads, delta refines
+        // Priority based on data volume
+        if runCount >= 10 {
             return crossRun
-        } else if greatRunCount >= 5 {
-            // Moderate cross-run data — pick the one with more evidence
-            // Score: cross-run by sample count, delta by delta count
-            if crossRun.sampleCount >= delta.deltaCount {
-                return crossRun
-            } else {
-                return delta
-            }
+        } else if runCount >= 5 {
+            return crossRun.sampleCount >= delta.deltaCount ? crossRun : delta
         } else {
-            // Sparse cross-run data — delta leads
             if totalDeltas >= 5 {
                 return delta
             } else {
-                // Both sparse — return whichever has more data points
                 return crossRun.sampleCount >= delta.deltaCount ? crossRun : delta
             }
         }
@@ -315,24 +397,19 @@ enum CadenceAnalyzer {
 
     // MARK: - Confidence
 
-    /// Determine confidence tier from both data sources.
     private static func determineConfidence(
-        greatRunCount: Int,
+        runCount: Int,
         deltaCount: Int
     ) -> CadenceConfidence {
-        // High: 10+ GREAT runs AND 20+ delta pairs
-        if greatRunCount >= 10 && deltaCount >= 20 {
+        if runCount >= 10 && deltaCount >= 20 {
             return .high
         }
-        // Moderate: 5-10 GREAT runs, OR any GREAT runs + 15-30 deltas
-        if greatRunCount >= 5 || (greatRunCount >= 3 && deltaCount >= 15) {
+        if runCount >= 5 || (runCount >= 3 && deltaCount >= 15) {
             return .moderate
         }
-        // Low: 3-5 GREAT runs OR 5-15 delta pairs
-        if greatRunCount >= 3 || deltaCount >= 5 {
+        if runCount >= 3 || deltaCount >= 5 {
             return .low
         }
-        // Insufficient
         return .insufficient
     }
 }

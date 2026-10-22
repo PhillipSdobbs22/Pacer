@@ -14,6 +14,7 @@ import Combine
 struct SPMCCIPairRecord: Codable {
     let spm: Double
     let cci: Double
+    let avgSpeedMPH: Double?       // interval speed for pace-band analysis (nil for legacy data)
 }
 
 /// Running Economy data embedded in a run record.
@@ -169,7 +170,8 @@ final class RunStore: ObservableObject {
                 pairs = rawPairs.compactMap { dict in
                     guard let spm = dict["spm"] as? Double,
                           let cci = dict["cci"] as? Double else { return nil }
-                    return SPMCCIPairRecord(spm: spm, cci: cci)
+                    let speed = dict["avgSpeedMPH"] as? Double  // nil for legacy data
+                    return SPMCCIPairRecord(spm: spm, cci: cci, avgSpeedMPH: speed)
                 }
             }
 

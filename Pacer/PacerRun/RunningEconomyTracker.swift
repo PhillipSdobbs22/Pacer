@@ -34,6 +34,7 @@ struct REIntervalResult {
 struct SPMCCIPair {
     let spm: Double
     let cci: Double
+    let avgSpeedMPH: Double        // interval speed for pace-band analysis
 }
 
 /// Overall workout RE summary, exposed to the summary screen.
@@ -206,7 +207,7 @@ final class RunningEconomyTracker {
 
         // Build per-interval SPM-CCI pairs for correlation analysis
         let spmCCIPairs = intervalResults.map {
-            SPMCCIPair(spm: $0.avgSPM, cci: $0.cci)
+            SPMCCIPair(spm: $0.avgSPM, cci: $0.cci, avgSpeedMPH: $0.avgSpeedMPH)
         }
 
         // Overall average SPM from all samples

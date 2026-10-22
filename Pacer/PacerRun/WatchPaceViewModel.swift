@@ -564,7 +564,8 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             let pairs: [[String: Any]] = re.spmCCIPairs.map { pair in
                 [
                     "spm": round(pair.spm * 10) / 10,
-                    "cci": round(pair.cci * 10) / 10
+                    "cci": round(pair.cci * 10) / 10,
+                    "avgSpeedMPH": round(pair.avgSpeedMPH * 100) / 100
                 ]
             }
 

@@ -27,35 +27,43 @@
       "spmCCIPairs": [
         {
           "spm": 186.0,
-          "cci": 19.74
+          "cci": 19.74,
+          "avgSpeedMPH": 6.91
         },
         {
           "spm": 186.0,
-          "cci": 20.71
+          "cci": 20.71,
+          "avgSpeedMPH": 6.85
         },
         {
           "spm": 186.0,
-          "cci": 22.99
+          "cci": 22.99,
+          "avgSpeedMPH": 6.78
         },
         {
           "spm": 186.0,
-          "cci": 22.95
+          "cci": 22.95,
+          "avgSpeedMPH": 6.92
         },
         {
           "spm": 186.0,
-          "cci": 23.48
+          "cci": 23.48,
+          "avgSpeedMPH": 6.88
         },
         {
           "spm": 186.0,
-          "cci": 24.16
+          "cci": 24.16,
+          "avgSpeedMPH": 6.95
         },
         {
           "spm": 186.0,
-          "cci": 22.6
+          "cci": 22.6,
+          "avgSpeedMPH": 7.01
         },
         {
           "spm": 186.0,
-          "cci": 24.19
+          "cci": 24.19,
+          "avgSpeedMPH": 6.80
         }
       ]
     },

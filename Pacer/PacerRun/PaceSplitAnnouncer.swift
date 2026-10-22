@@ -118,7 +118,7 @@ final class PaceSplitAnnouncer {
 
         // ── 1. Intro + pace ──
         segments.append(SpeechSegment(
-            text: "Your previous split pace,",
+            text: "Your previous split,",
             postDelay: 2.0
         ))
         segments.append(SpeechSegment(
@@ -128,7 +128,7 @@ final class PaceSplitAnnouncer {
 
         // ── 2. Contextual repeat, then zone ──
         segments.append(SpeechSegment(
-            text: "That's a \(shortPace) average for your previous split pace,",
+            text: "That's a \(shortPace) average for your previous split,",
             postDelay: 2.0
         ))
         segments.append(SpeechSegment(
@@ -138,7 +138,7 @@ final class PaceSplitAnnouncer {
 
         // ── 3. Step rate ──
         segments.append(SpeechSegment(
-            text: "with an average step rate of,",
+            text: "with a step rate of,",
             postDelay: 2.0
         ))
         segments.append(SpeechSegment(
@@ -167,7 +167,7 @@ final class PaceSplitAnnouncer {
             cciSummary = ""
         }
         segments.append(SpeechSegment(
-            text: "In summary, your previous split was \(shortPace), zone \(zone), \(spmInt)\(cciSummary).",
+            text: "In summary, your previous interval was \(shortPace), zone \(zone), \(spmInt)\(cciSummary).",
             postDelay: 2.0
         ))
 

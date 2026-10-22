@@ -17,6 +17,9 @@ import SwiftUI
 struct RunHistoryTab: View {
     @ObservedObject var runStore: RunStore
 
+    /// Tracks which run is currently expanded (nil = all collapsed).
+    @State private var expandedRunID: UUID?
+
     private let navy = Color(red: 0.043, green: 0.071, blue: 0.125)
     private let yellow = Color(red: 1.0, green: 0.831, blue: 0.0)
 
@@ -63,14 +66,36 @@ struct RunHistoryTab: View {
 
     private var runList: some View {
         List {
-            // Optimal Cadence Zone header card
-            OptimalCadenceCard(analysis: analysis)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+            // Walking optimal cadence card
+            PaceBandCadenceCard(
+                bandResult: analysis.walkingResult,
+                icon: "figure.walk",
+                accentColor: .green
+            )
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+
+            // Jogging optimal cadence card
+            PaceBandCadenceCard(
+                bandResult: analysis.joggingResult,
+                icon: "figure.run",
+                accentColor: .cyan
+            )
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
 
             ForEach(runStore.runs) { run in
-                RunHistoryRow(run: run)
-                    .listRowBackground(Color(white: 0.12))
+                RunHistoryRow(
+                    run: run,
+                    isExpanded: expandedRunID == run.id,
+                    onTap: {
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            expandedRunID = (expandedRunID == run.id)
+                                ? nil : run.id
+                        }
+                    }
+                )
+                .listRowBackground(Color(white: 0.12))
             }
             .onDelete(perform: deleteRun)
         }
@@ -85,32 +110,33 @@ struct RunHistoryTab: View {
     }
 }
 
-// MARK: - Optimal Cadence Card
+// MARK: - Pace Band Cadence Card
 
-struct OptimalCadenceCard: View {
-    let analysis: CadenceAnalysisResult
+struct PaceBandCadenceCard: View {
+    let bandResult: PaceBandResult
+    let icon: String
+    let accentColor: Color
 
-    private let cyan = Color.cyan
     private let cardBG = Color(white: 0.10)
 
     /// The best recommendation: combined if available, else cross-run, else delta.
     private var displayBucket: CadenceBucket? {
-        analysis.combinedOptimalBucket ?? analysis.optimalBucket ?? analysis.deltaOptimalBucket
+        bandResult.combinedOptimalBucket ?? bandResult.optimalBucket ?? bandResult.deltaOptimalBucket
     }
 
     /// Label describing which signal is driving the recommendation.
     private var signalLabel: String {
-        if analysis.combinedOptimalBucket != nil {
-            if analysis.optimalBucket != nil && analysis.deltaOptimalBucket != nil {
+        if bandResult.combinedOptimalBucket != nil {
+            if bandResult.optimalBucket != nil && bandResult.deltaOptimalBucket != nil {
                 return "Cross-run + Delta"
-            } else if analysis.deltaOptimalBucket != nil {
+            } else if bandResult.deltaOptimalBucket != nil {
                 return "Delta analysis"
             } else {
                 return "Cross-run"
             }
-        } else if analysis.optimalBucket != nil {
+        } else if bandResult.optimalBucket != nil {
             return "Cross-run"
-        } else if analysis.deltaOptimalBucket != nil {
+        } else if bandResult.deltaOptimalBucket != nil {
             return "Delta analysis"
         }
         return ""
@@ -120,19 +146,23 @@ struct OptimalCadenceCard: View {
         VStack(spacing: 8) {
             // Title row
             HStack {
-                Image(systemName: "metronome.fill")
-                    .foregroundStyle(cyan)
-                Text("Optimal Cadence Zone")
+                Image(systemName: icon)
+                    .foregroundStyle(accentColor)
+                Text("\(bandResult.paceBand.rawValue) Optimal Cadence")
                     .font(.subheadline.bold())
                     .foregroundStyle(.white)
                 Spacer()
+                // Speed label
+                Text(bandResult.paceBand == .walking ? "≤ 4 mph" : "> 4 mph")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
             }
 
             if let optimal = displayBucket {
                 // Big cadence range
                 Text("\(Int(optimal.rangeLow))–\(Int(optimal.rangeHigh)) SPM")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(cyan)
+                    .foregroundStyle(accentColor)
 
                 // Detail line: CCI and/or gradient
                 detailLine(for: optimal)
@@ -151,18 +181,17 @@ struct OptimalCadenceCard: View {
                 Text("—")
                     .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white.opacity(0.3))
-                Text("Complete more runs to find your optimal cadence.")
+                Text("Complete more \(bandResult.paceBand.rawValue.lowercased()) activities to find your optimal cadence.")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
             }
 
-            // Stats line — now includes delta metrics
+            // Stats line
             HStack(spacing: 12) {
-                miniStat(label: "GREAT runs", value: "\(analysis.totalGreatRuns)")
-                miniStat(label: "Intervals", value: "\(analysis.totalPairsAnalyzed)")
-                miniStat(label: "Deltas", value: "\(analysis.totalDeltaPairs)")
-                miniStat(label: "Eligible", value: "\(analysis.eligibleRunCount)")
+                miniStat(label: "Runs", value: "\(bandResult.totalRuns)")
+                miniStat(label: "Intervals", value: "\(bandResult.totalPairsAnalyzed)")
+                miniStat(label: "Deltas", value: "\(bandResult.totalDeltaPairs)")
             }
             .padding(.top, 2)
         }
@@ -172,7 +201,7 @@ struct OptimalCadenceCard: View {
                 .fill(cardBG)
                 .overlay(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(cyan.opacity(0.3), lineWidth: 1)
+                        .strokeBorder(accentColor.opacity(0.3), lineWidth: 1)
                 )
         )
     }
@@ -182,7 +211,6 @@ struct OptimalCadenceCard: View {
     @ViewBuilder
     private func detailLine(for bucket: CadenceBucket) -> some View {
         if bucket.sampleCount > 0 && bucket.avgCCI > 0 {
-            // Has cross-run CCI data
             if let gradient = bucket.avgGradient {
                 Text(String(format: "Avg CCI: %.1f  ·  %d intervals  ·  slope: %+.2f",
                             bucket.avgCCI, bucket.sampleCount, gradient))
@@ -195,7 +223,6 @@ struct OptimalCadenceCard: View {
                     .foregroundStyle(.white.opacity(0.7))
             }
         } else if let gradient = bucket.avgGradient {
-            // Delta-only bucket (no cross-run data yet)
             Text(String(format: "Slope: %+.2f  ·  %d delta pairs",
                         gradient, bucket.deltaCount))
                 .font(.caption)
@@ -206,7 +233,7 @@ struct OptimalCadenceCard: View {
     // MARK: - Confidence Badge
 
     private var confidenceBadge: some View {
-        let (text, color) = confidenceDisplay(analysis.confidence)
+        let (text, color) = confidenceDisplay(bandResult.confidence)
         return Text(text)
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundStyle(color)
@@ -244,6 +271,8 @@ struct OptimalCadenceCard: View {
 
 struct RunHistoryRow: View {
     let run: RunRecord
+    let isExpanded: Bool
+    let onTap: () -> Void
 
     @State private var isExporting = false
     @State private var gpxURL: URL?
@@ -255,36 +284,44 @@ struct RunHistoryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Top line: date + feeling + share button
-            HStack {
-                Text(formattedDate)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white)
-                Spacer()
+            // Top line: date + feeling + share button + chevron
+            Button(action: onTap) {
+                HStack {
+                    Text(formattedDate)
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.white)
+                    Spacer()
 
-                // GPX share button
-                Button {
-                    exportGPX()
-                } label: {
-                    if isExporting {
-                        ProgressView()
-                            .tint(.cyan)
-                            .scaleEffect(0.8)
-                    } else {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 15))
-                            .foregroundStyle(.cyan)
+                    // GPX share button
+                    Button {
+                        exportGPX()
+                    } label: {
+                        if isExporting {
+                            ProgressView()
+                                .tint(.cyan)
+                                .scaleEffect(0.8)
+                        } else {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.cyan)
+                        }
                     }
-                }
-                .buttonStyle(.plain)
-                .disabled(isExporting)
+                    .buttonStyle(.plain)
+                    .disabled(isExporting)
 
-                Text(feelingEmoji)
-                    .font(.title3)
-                Text(feelingLabel)
-                    .font(.caption.bold())
-                    .foregroundStyle(feelingColor)
+                    Text(feelingEmoji)
+                        .font(.title3)
+                    Text(feelingLabel)
+                        .font(.caption.bold())
+                        .foregroundStyle(feelingColor)
+
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.4))
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
             }
+            .buttonStyle(.plain)
 
             // Stats grid: 2 rows × 4 columns
             HStack(spacing: 0) {
@@ -308,6 +345,11 @@ struct RunHistoryRow: View {
                 statCell(label: "Steps",
                          value: "\(run.totalSteps)", unit: "")
             }
+
+            // MARK: - Expanded Detail View
+            if isExpanded {
+                expandedDetail
+            }
         }
         .padding(.vertical, 6)
         .sheet(isPresented: $showShareSheet) {
@@ -319,6 +361,294 @@ struct RunHistoryRow: View {
             Button("OK", role: .cancel) { }
         } message: {
             Text(exportError ?? "Unknown error")
+        }
+    }
+
+    // MARK: - Expanded Detail
+
+    @ViewBuilder
+    private var expandedDetail: some View {
+        if let re = run.runningEconomy, !re.spmCCIPairs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Divider().background(Color.white.opacity(0.2))
+
+                // Extra stats row: Max HR, Calories
+                extraStatsRow
+
+                // CCI trend banner
+                cciTrendBanner(re: re)
+
+                // Best & Worst interval callouts
+                bestWorstCallouts(re: re)
+
+                // Interval breakdown table
+                intervalTable(pairs: re.spmCCIPairs)
+
+                // Coaching insights
+                coachingInsights(re: re)
+            }
+            .transition(.opacity.combined(with: .move(edge: .top)))
+        } else {
+            VStack(spacing: 6) {
+                Divider().background(Color.white.opacity(0.2))
+                HStack {
+                    statCell(label: "Max HR",
+                             value: String(format: "%.0f", run.maxHR),
+                             unit: "bpm")
+                    statCell(label: "Calories",
+                             value: String(format: "%.0f", run.activeCalories),
+                             unit: "cal")
+                }
+                Text("No interval data available for this run.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.top, 4)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    // MARK: - Extra Stats
+
+    private var extraStatsRow: some View {
+        HStack(spacing: 0) {
+            statCell(label: "Max HR",
+                     value: String(format: "%.0f", run.maxHR),
+                     unit: "bpm")
+            statCell(label: "Calories",
+                     value: String(format: "%.0f", run.activeCalories),
+                     unit: "cal")
+            statCell(label: "Avg CCI",
+                     value: cciString, unit: "")
+            statCell(label: "Intervals",
+                     value: "\(run.runningEconomy?.intervalCount ?? 0)",
+                     unit: "")
+        }
+    }
+
+    // MARK: - CCI Trend Banner
+
+    private func cciTrendBanner(re: RunREData) -> some View {
+        let trendColor: Color = {
+            switch re.trend.lowercased() {
+            case "improving": return .green
+            case "stable":    return .cyan
+            default:          return .red
+            }
+        }()
+        let trendIcon: String = {
+            switch re.trend.lowercased() {
+            case "improving": return "arrow.down.right"
+            case "stable":    return "arrow.right"
+            default:          return "arrow.up.right"
+            }
+        }()
+
+        return HStack(spacing: 8) {
+            Text("CCI TREND")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.5))
+            Image(systemName: trendIcon)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(trendColor)
+            Text(re.trend.capitalized)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(trendColor)
+            Spacer()
+            Text(String(format: "%.1f → %.1f",
+                        re.bestIntervalCCI, re.worstIntervalCCI))
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+
+    // MARK: - Best & Worst Callouts
+
+    private func bestWorstCallouts(re: RunREData) -> some View {
+        HStack(spacing: 8) {
+            // Best interval
+            VStack(alignment: .leading, spacing: 4) {
+                Text("BEST")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.green)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(String(format: "%.1f", re.bestIntervalCCI))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.green)
+                    Text("CCI")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                let bestSPM = re.spmCCIPairs.indices.contains(
+                    re.bestIntervalNumber - 1)
+                    ? re.spmCCIPairs[re.bestIntervalNumber - 1].spm : 0
+                Text("Int \(re.bestIntervalNumber) · \(Int(bestSPM)) SPM")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.green.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.green.opacity(0.2), lineWidth: 1)
+                    )
+            )
+
+            // Worst interval
+            VStack(alignment: .leading, spacing: 4) {
+                Text("WORST")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.red)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(String(format: "%.1f", re.worstIntervalCCI))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.red)
+                    Text("CCI")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                let worstSPM = re.spmCCIPairs.indices.contains(
+                    re.worstIntervalNumber - 1)
+                    ? re.spmCCIPairs[re.worstIntervalNumber - 1].spm : 0
+                Text("Int \(re.worstIntervalNumber) · \(Int(worstSPM)) SPM")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.red.opacity(0.08))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.red.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+    }
+
+    // MARK: - Interval Table
+
+    private func intervalTable(pairs: [SPMCCIPairRecord]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("3-MIN INTERVAL BREAKDOWN")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.5))
+                .padding(.bottom, 6)
+
+            // Header
+            HStack(spacing: 0) {
+                Text("#")
+                    .frame(width: 28, alignment: .leading)
+                Text("SPM")
+                    .frame(maxWidth: .infinity)
+                Text("CCI")
+                    .frame(maxWidth: .infinity)
+                Text("Δ CCI")
+                    .frame(maxWidth: .infinity)
+            }
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(.white.opacity(0.4))
+            .padding(.vertical, 4)
+
+            Divider().background(Color.white.opacity(0.15))
+
+            // Rows
+            ForEach(Array(pairs.enumerated()), id: \.offset) { idx, pair in
+                let isBest = (idx + 1 == run.runningEconomy?.bestIntervalNumber)
+                let isWorst = (idx + 1 == run.runningEconomy?.worstIntervalNumber)
+                let delta: Double? = idx > 0
+                    ? pair.cci - pairs[idx - 1].cci : nil
+
+                HStack(spacing: 0) {
+                    Text("\(idx + 1)")
+                        .frame(width: 28, alignment: .leading)
+                        .foregroundStyle(
+                            isBest ? .green :
+                            isWorst ? .red :
+                            .white.opacity(0.5)
+                        )
+                        .fontWeight(isBest || isWorst ? .bold : .regular)
+
+                    Text(String(format: "%.0f", pair.spm))
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(.white)
+
+                    Text(String(format: "%.1f", pair.cci))
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(
+                            isBest ? .green :
+                            isWorst ? .red :
+                            .white
+                        )
+                        .fontWeight(isBest || isWorst ? .semibold : .regular)
+
+                    Group {
+                        if let d = delta {
+                            Text(String(format: "%+.1f", d))
+                                .foregroundStyle(d <= 0 ? .green : .red)
+                        } else {
+                            Text("—")
+                                .foregroundStyle(.white.opacity(0.3))
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .font(.system(size: 13, design: .monospaced))
+                .padding(.vertical, 5)
+                .background(
+                    isBest ? Color.green.opacity(0.04) :
+                    isWorst ? Color.red.opacity(0.04) :
+                    Color.clear
+                )
+
+                if idx < pairs.count - 1 {
+                    Divider().background(Color.white.opacity(0.06))
+                }
+            }
+        }
+    }
+
+    // MARK: - Coaching Insights
+
+    private func coachingInsights(re: RunREData) -> some View {
+        let insights = RunCoachingEngine.generateInsights(
+            run: run, re: re)
+
+        return VStack(alignment: .leading, spacing: 8) {
+            Text("COACHING INSIGHTS")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(.white.opacity(0.5))
+
+            ForEach(insights, id: \.title) { insight in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: insight.icon)
+                        .font(.system(size: 13))
+                        .foregroundStyle(insight.color)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(Color.white.opacity(0.06))
+                        )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(insight.title)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(insight.color)
+                        Text(insight.body)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
         }
     }
 
@@ -409,6 +739,197 @@ struct RunHistoryRow: View {
         case 1:  return .red
         default: return .gray
         }
+    }
+}
+
+// MARK: - Coaching Insight Model
+
+struct CoachingInsight {
+    let icon: String
+    let color: Color
+    let title: String
+    let body: String
+}
+
+// MARK: - Coaching Engine
+
+/// Generates context-aware coaching insights from a run's interval data.
+/// Accounts for warm-up HR lag, cardiac drift, and intentional variation.
+enum RunCoachingEngine {
+
+    static func generateInsights(run: RunRecord, re: RunREData) -> [CoachingInsight] {
+        var insights: [CoachingInsight] = []
+        let pairs = re.spmCCIPairs
+        guard pairs.count >= 2 else { return insights }
+
+        // 1. Warm-up detection: is the best interval #1 or #2?
+        let warmUpArtifact = re.bestIntervalNumber <= 2
+            && pairs.count >= 4
+        if warmUpArtifact {
+            let laterBest = pairs.dropFirst(2).min(by: { $0.cci < $1.cci })
+            let laterBestCCI = laterBest?.cci ?? re.bestIntervalCCI
+            let gapFromBest = laterBestCCI - re.bestIntervalCCI
+            if gapFromBest > 1.5 {
+                insights.append(CoachingInsight(
+                    icon: "heart.text.clipboard",
+                    color: .orange,
+                    title: "Warm-up HR lag likely",
+                    body: String(format:
+                        "Best CCI (%.1f) came in interval %d before HR " +
+                        "stabilized. Your true steady-state best is " +
+                        "closer to %.1f. Early intervals inflate " +
+                        "efficiency — look at intervals 3+ for real form.",
+                        re.bestIntervalCCI, re.bestIntervalNumber,
+                        laterBestCCI)
+                ))
+            } else {
+                // Best interval early but close to later intervals
+                insights.append(CoachingInsight(
+                    icon: "star",
+                    color: .yellow,
+                    title: "Strong start",
+                    body: String(format:
+                        "Best CCI (%.1f) in interval %d and you held " +
+                        "similar economy throughout — your warm-up form " +
+                        "carried into the run.",
+                        re.bestIntervalCCI, re.bestIntervalNumber)
+                ))
+            }
+        } else if re.bestIntervalNumber >= 3 {
+            insights.append(CoachingInsight(
+                icon: "star",
+                color: .yellow,
+                title: "Peak form mid-run",
+                body: String(format:
+                    "Best CCI (%.1f) came in interval %d — you found " +
+                    "your most efficient form after warming up, which " +
+                    "is the ideal pattern.",
+                    re.bestIntervalCCI, re.bestIntervalNumber)
+            ))
+        }
+
+        // 2. Cardiac drift detection
+        let firstHalfCCI = pairs.prefix(pairs.count / 2)
+            .map(\.cci).reduce(0, +) / Double(pairs.count / 2)
+        let secondHalfCCI = pairs.suffix(pairs.count / 2)
+            .map(\.cci).reduce(0, +) / Double(pairs.count / 2)
+        let driftPercent = ((secondHalfCCI - firstHalfCCI) / firstHalfCCI)
+            * 100
+
+        // Check if SPM was uniform (GPX limitation)
+        let spmSet = Set(pairs.map { Int($0.spm) })
+        let uniformSPM = spmSet.count == 1
+
+        if driftPercent > 10 {
+            if uniformSPM {
+                insights.append(CoachingInsight(
+                    icon: "waveform.path.ecg",
+                    color: .red,
+                    title: "Cardiac drift detected",
+                    body: String(format:
+                        "CCI rose %.0f%% from first to second half at " +
+                        "constant cadence. Your heart worked harder for " +
+                        "the same pace — typical in zone %d. Future runs " +
+                        "with varied cadence will show if SPM shifts help.",
+                        driftPercent, run.heartRateZone)
+                ))
+            } else {
+                insights.append(CoachingInsight(
+                    icon: "waveform.path.ecg",
+                    color: .red,
+                    title: "Cardiac drift detected",
+                    body: String(format:
+                        "CCI rose %.0f%% from first to second half. " +
+                        "Heart rate climbed while pace held — consider " +
+                        "starting easier or adjusting cadence earlier.",
+                        driftPercent)
+                ))
+            }
+        } else if driftPercent < -5 {
+            insights.append(CoachingInsight(
+                icon: "arrow.down.heart",
+                color: .green,
+                title: "Negative split — strong finish",
+                body: String(format:
+                    "CCI improved %.0f%% in the second half — you got " +
+                    "more efficient as the run progressed. Great pacing.",
+                    abs(driftPercent))
+            ))
+        }
+
+        // 3. Mid-run recovery / intentional variation
+        if !uniformSPM {
+            // Find the largest SPM swing between consecutive intervals
+            var maxSwing = 0.0
+            var swingIdx = 0
+            for i in 1..<pairs.count {
+                let swing = abs(pairs[i].spm - pairs[i - 1].spm)
+                if swing > maxSwing {
+                    maxSwing = swing
+                    swingIdx = i
+                }
+            }
+            if maxSwing >= 6 {
+                let surgeUp = pairs[swingIdx].spm > pairs[swingIdx - 1].spm
+                let cciChange = pairs[swingIdx].cci - pairs[swingIdx - 1].cci
+                let cciVerdict = cciChange < 0 ? "improved" : "worsened"
+                insights.append(CoachingInsight(
+                    icon: "arrow.triangle.swap",
+                    color: .cyan,
+                    title: surgeUp
+                        ? "Cadence surge detected"
+                        : "Cadence drop detected",
+                    body: String(format:
+                        "SPM %@ from %.0f to %.0f at interval %d — " +
+                        "CCI %@ by %.1f. %@",
+                        surgeUp ? "jumped" : "dropped",
+                        pairs[swingIdx - 1].spm, pairs[swingIdx].spm,
+                        swingIdx + 1,
+                        cciVerdict, abs(cciChange),
+                        cciChange < 0
+                            ? "The shift helped your economy."
+                            : "The shift cost more cardiac effort.")
+                ))
+            }
+        } else if pairs.count >= 4 {
+            // All SPMs uniform — note the limitation
+            // Check for any mid-run dip (recovery signal)
+            var bestDip = 0.0
+            var dipIdx = 0
+            for i in 2..<pairs.count {
+                let dip = pairs[i - 1].cci - pairs[i].cci
+                if dip > bestDip {
+                    bestDip = dip
+                    dipIdx = i
+                }
+            }
+            if bestDip > 1.0 {
+                insights.append(CoachingInsight(
+                    icon: "clock.arrow.circlepath",
+                    color: .cyan,
+                    title: "Mid-run recovery",
+                    body: String(format:
+                        "Interval %d dropped CCI by %.1f — a sign you " +
+                        "found a second wind. Future runs with natural " +
+                        "cadence variation will reveal if SPM shifts " +
+                        "helped.",
+                        dipIdx + 1, bestDip)
+                ))
+            }
+
+            insights.append(CoachingInsight(
+                icon: "metronome",
+                color: Color.white.opacity(0.6),
+                title: "Uniform cadence recorded",
+                body: "All intervals show the same SPM — this run " +
+                    "was imported from GPX which records a single " +
+                    "average. Future runs recorded on your Watch will " +
+                    "capture real per-interval cadence for SPM " +
+                    "optimization."
+            ))
+        }
+
+        return insights
     }
 }
 
