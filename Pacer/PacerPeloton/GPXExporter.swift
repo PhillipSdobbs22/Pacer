@@ -38,12 +38,22 @@ enum GPXExporter {
             end: workout.endDate
         )
 
+        // 3b. Fetch step-count samples → per-point cadence (SPM)
+        //     Uses the same nearest-sample approach as HR — no extra
+        //     sensors or battery cost; step counts are already recorded.
+        let cadenceSamples = await fetchCadenceSamples(
+            store: store,
+            start: workout.startDate,
+            end: workout.endDate
+        )
+
         // 4. Build GPX XML
         let gpxString = buildGPX(
             run: run,
             workout: workout,
             locations: locations,
-            hrSamples: hrSamples
+            hrSamples: hrSamples,
+            cadenceSamples: cadenceSamples
         )
 
         // 5. Write to temp file
@@ -203,13 +213,69 @@ enum GPXExporter {
         }
     }
 
+    // MARK: - Fetch Cadence Samples
+
+    /// Fetch step-count samples during the workout and convert to SPM.
+    /// HealthKit stores steps as cumulative quantity samples over time
+    /// intervals. We convert each sample to steps-per-minute (SPM) and
+    /// tag it with the midpoint timestamp for nearest-sample lookup.
+    private static func fetchCadenceSamples(
+        store: HKHealthStore,
+        start: Date,
+        end: Date
+    ) async -> [(spm: Double, date: Date)] {
+        let predicate = HKQuery.predicateForSamples(
+            withStart: start, end: end, options: []
+        )
+        let sortByDate = NSSortDescriptor(
+            key: HKSampleSortIdentifierStartDate, ascending: true
+        )
+
+        return await withCheckedContinuation { cont in
+            let query = HKSampleQuery(
+                sampleType: HKQuantityType(.stepCount),
+                predicate: predicate,
+                limit: HKObjectQueryNoLimit,
+                sortDescriptors: [sortByDate]
+            ) { _, samples, _ in
+                let result: [(spm: Double, date: Date)] =
+                    (samples as? [HKQuantitySample] ?? []).compactMap { sample in
+                        let steps = sample.quantity.doubleValue(
+                            for: HKUnit.count()
+                        )
+                        let duration = sample.endDate.timeIntervalSince(
+                            sample.startDate
+                        )
+                        // Skip degenerate samples (< 1 second)
+                        guard duration >= 1.0 else { return nil }
+
+                        let spm = steps / (duration / 60.0)
+
+                        // Sanity check: walking ~100-170 SPM, running
+                        // ~150-210 SPM. Discard outliers from sensor
+                        // noise or very short accumulation windows.
+                        guard spm >= 60 && spm <= 250 else { return nil }
+
+                        // Use midpoint of the sample interval
+                        let midpoint = sample.startDate.addingTimeInterval(
+                            duration / 2.0
+                        )
+                        return (spm: spm, date: midpoint)
+                    }
+                cont.resume(returning: result)
+            }
+            store.execute(query)
+        }
+    }
+
     // MARK: - Build GPX XML
 
     private static func buildGPX(
         run: RunRecord,
         workout: HKWorkout,
         locations: [CLLocation],
-        hrSamples: [(bpm: Double, date: Date)]
+        hrSamples: [(bpm: Double, date: Date)],
+        cadenceSamples: [(spm: Double, date: Date)] = []
     ) -> String {
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -256,11 +322,23 @@ enum GPXExporter {
                 to: location.timestamp, in: hrSamples, maxGap: 10
             )
 
-            // Cadence from the run record's average (per-point cadence
-            // isn't stored in HealthKit for Watch SE 1st gen)
-            let cadence = run.avgStepsPerMin > 0
-                ? Int(run.avgStepsPerMin / 2)  // GPX uses half-cadence (strides/min)
-                : nil
+            // Find nearest cadence sample (within 15 seconds).
+            // Falls back to the run's overall average if HealthKit
+            // has no per-point step-count data for this workout.
+            let cadence: Int? = {
+                if let nearest = nearestCadenceSample(
+                    to: location.timestamp,
+                    in: cadenceSamples,
+                    maxGap: 15
+                ) {
+                    // GPX cadence is half-steps (strides per minute)
+                    return Int((nearest.spm / 2.0).rounded())
+                } else if run.avgStepsPerMin > 0 {
+                    // Fallback: overall average (legacy behavior)
+                    return Int(run.avgStepsPerMin / 2)
+                }
+                return nil
+            }()
 
             if nearestHR != nil || cadence != nil {
                 xml += "        <extensions>\n"
@@ -290,7 +368,7 @@ enum GPXExporter {
 
     // MARK: - Helpers
 
-    /// Find the nearest sample to a given timestamp within maxGap seconds.
+    /// Find the nearest HR sample to a given timestamp within maxGap seconds.
     private static func nearestSample(
         to date: Date,
         in samples: [(bpm: Double, date: Date)],
@@ -307,6 +385,28 @@ enum GPXExporter {
             }
             // Samples are sorted chronologically — if we've passed the
             // target time and gap is growing, stop early.
+            if sample.date > date && gap > bestGap { break }
+        }
+
+        guard let result = best, bestGap <= maxGap else { return nil }
+        return result
+    }
+
+    /// Find the nearest cadence (SPM) sample to a given timestamp.
+    private static func nearestCadenceSample(
+        to date: Date,
+        in samples: [(spm: Double, date: Date)],
+        maxGap: TimeInterval
+    ) -> (spm: Double, date: Date)? {
+        var best: (spm: Double, date: Date)?
+        var bestGap: TimeInterval = .greatestFiniteMagnitude
+
+        for sample in samples {
+            let gap = abs(sample.date.timeIntervalSince(date))
+            if gap < bestGap {
+                bestGap = gap
+                best = sample
+            }
             if sample.date > date && gap > bestGap { break }
         }
 

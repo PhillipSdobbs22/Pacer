@@ -503,11 +503,11 @@ struct ContentView: View {
                 .padding(.top, 8)
                 .alert("Delete Activity?", isPresented: $showTrashConfirm) {
                     Button("Delete", role: .destructive) {
-                        vm.dismissSummary()
+                        vm.trashActivity()
                     }
                     Button("Cancel", role: .cancel) { }
                 } message: {
-                    Text("This activity will not be saved.")
+                    Text("This will delete the activity from your history and Apple Health.")
                 }
             }
             .padding(.horizontal, 4)

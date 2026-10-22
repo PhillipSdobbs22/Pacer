@@ -38,6 +38,22 @@ final class WatchSessionManager: NSObject, @unchecked Sendable {
         WCSession.default.transferUserInfo(payload)
         print("[Watch] Activity queued for iPhone transfer")
     }
+
+    /// Ask the iPhone to delete a run record by its ISO-8601 date string.
+    /// Uses transferUserInfo for guaranteed delivery so the delete
+    /// arrives even if the iPhone isn't reachable right now.
+    func sendDeleteToPhone(dateString: String) {
+        guard WCSession.default.activationState == .activated else {
+            print("[Watch] WCSession not activated — skipping delete")
+            return
+        }
+        let payload: [String: Any] = [
+            "type": "deleteRun",
+            "date": dateString
+        ]
+        WCSession.default.transferUserInfo(payload)
+        print("[Watch] Delete request queued for iPhone: \(dateString)")
+    }
 }
 
 // MARK: - WCSessionDelegate

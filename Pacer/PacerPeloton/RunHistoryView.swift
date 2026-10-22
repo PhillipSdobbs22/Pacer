@@ -921,11 +921,11 @@ enum RunCoachingEngine {
                 icon: "metronome",
                 color: Color.white.opacity(0.6),
                 title: "Uniform cadence recorded",
-                body: "All intervals show the same SPM — this run " +
-                    "was imported from GPX which records a single " +
-                    "average. Future runs recorded on your Watch will " +
-                    "capture real per-interval cadence for SPM " +
-                    "optimization."
+                body: "All intervals show the same SPM — you " +
+                    "may have held a steady cadence and varied " +
+                    "stride length instead. Try targeting ~180 SPM " +
+                    "when jogging and ~150 SPM when walking to " +
+                    "see how cadence shifts affect your CCI."
             ))
         }
 

@@ -90,6 +90,12 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     private var pauseDate: Date?
     private var routeLocations: [CLLocation] = []
 
+    // MARK: - Private — Saved Activity (for trash/delete support)
+
+    private var savedActivityFileURL: URL?
+    private var savedActivityDateString: String?
+    private var savedWorkout: HKWorkout?
+
     // MARK: - Private — SPM Tracking (delta-based steps per minute)
 
     private var previousStepCount: Double = 0
@@ -492,6 +498,9 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             try await builder.endCollection(at: Date())
             let workout = try await builder.finishWorkout()
 
+            // Keep a reference so trashActivity() can delete it
+            savedWorkout = workout
+
             // Attach the GPS route to the saved workout
             if let routeBuilder = routeBuilder,
                !routeLocations.isEmpty,
@@ -605,11 +614,51 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             print("[WatchPace] Activity save error: \(error)")
         }
 
+        // Store references for potential trash/delete
+        savedActivityFileURL = fileURL
+        savedActivityDateString = fullActivity["date"] as? String
+
         // Transfer activity data to iPhone for history log
         WatchSessionManager.shared.sendActivityToPhone(fullActivity)
     }
 
     func dismissSummary() {
+        // "Save" path — data is already persisted; just close the summary.
+        savedActivityFileURL = nil
+        savedActivityDateString = nil
+        savedWorkout = nil
+        showSummary = false
+    }
+
+    /// Deletes the activity from the watch JSON file, iPhone run history,
+    /// and Apple Health.  Called when the user confirms Trash.
+    func trashActivity() {
+        // 1. Delete local JSON file on the watch
+        if let fileURL = savedActivityFileURL {
+            try? FileManager.default.removeItem(at: fileURL)
+            print("[WatchPace] Trashed local file: \(fileURL.lastPathComponent)")
+        }
+
+        // 2. Tell iPhone to delete the matching run
+        if let dateString = savedActivityDateString {
+            WatchSessionManager.shared.sendDeleteToPhone(dateString: dateString)
+        }
+
+        // 3. Delete the saved workout from Apple Health
+        if let workout = savedWorkout {
+            healthStore.delete(workout) { success, error in
+                if success {
+                    print("[WatchPace] Deleted workout from Apple Health")
+                } else if let error = error {
+                    print("[WatchPace] Health delete error: \(error)")
+                }
+            }
+        }
+
+        // Clean up references and close the summary
+        savedActivityFileURL = nil
+        savedActivityDateString = nil
+        savedWorkout = nil
         showSummary = false
     }
 

@@ -102,25 +102,40 @@ extension PhoneConnectivityProvider: WCSessionDelegate {
         }
     }
 
-    /// Receive completed activity records from the Watch (transferUserInfo).
-    /// Guaranteed delivery — queued even when iPhone is not reachable.
+    /// Receive completed activity records and delete requests from the Watch
+    /// (transferUserInfo).  Guaranteed delivery — queued even when iPhone
+    /// is not reachable.
     nonisolated func session(
         _ session: WCSession,
         didReceiveUserInfo userInfo: [String: Any]
     ) {
-        guard let type = userInfo["type"] as? String,
-              type == "runActivity" else { return }
+        guard let type = userInfo["type"] as? String else { return }
 
-        guard let activityData = userInfo["activity"] as? [String: Any] else {
-            print("[Phone] runActivity missing activity payload")
-            return
-        }
-
-        Task { @MainActor in
-            if let record = RunStore.record(from: activityData) {
-                RunStore.shared.save(record)
-                print("[Phone] Run saved: \(record.date)")
+        switch type {
+        case "runActivity":
+            guard let activityData = userInfo["activity"] as? [String: Any] else {
+                print("[Phone] runActivity missing activity payload")
+                return
             }
+            Task { @MainActor in
+                if let record = RunStore.record(from: activityData) {
+                    RunStore.shared.save(record)
+                    print("[Phone] Run saved: \(record.date)")
+                }
+            }
+
+        case "deleteRun":
+            guard let dateString = userInfo["date"] as? String else {
+                print("[Phone] deleteRun missing date")
+                return
+            }
+            Task { @MainActor in
+                RunStore.shared.deleteByDate(dateString)
+                print("[Phone] Processed delete request for: \(dateString)")
+            }
+
+        default:
+            break
         }
     }
 }

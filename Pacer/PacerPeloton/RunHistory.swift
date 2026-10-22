@@ -121,6 +121,23 @@ final class RunStore: ObservableObject {
         persist()
     }
 
+    /// Delete a run by its ISO-8601 date string (used when the watch
+    /// sends a delete request — the watch doesn't know the UUID).
+    func deleteByDate(_ dateString: String) {
+        guard let target = ISO8601DateFormatter().date(from: dateString) else {
+            print("[RunStore] deleteByDate: invalid date string")
+            return
+        }
+        let before = runs.count
+        runs.removeAll { abs($0.date.timeIntervalSince(target)) < 1.0 }
+        if runs.count < before {
+            persist()
+            print("[RunStore] Deleted run for date: \(dateString)")
+        } else {
+            print("[RunStore] No matching run for date: \(dateString)")
+        }
+    }
+
     private func persist() {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
