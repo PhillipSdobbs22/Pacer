@@ -153,7 +153,7 @@ struct PaceBandCadenceCard: View {
                     .foregroundStyle(.white)
                 Spacer()
                 // Speed label
-                Text(bandResult.paceBand == .walking ? "≤ 4 mph" : "> 4 mph")
+                Text(bandResult.paceBand == .walking ? "≤ 4.2 mph" : "> 4.2 mph")
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(.white.opacity(0.4))
             }
