@@ -698,9 +698,7 @@ struct RunHistoryRow: View {
     // MARK: - Helpers
 
     private var formattedDate: String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, yyyy  h:mm a"
-        return f.string(from: run.date)
+        PacerFormatters.runHistoryDate.string(from: run.date)
     }
 
     private var cciString: String {

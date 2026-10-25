@@ -8,6 +8,9 @@
 
 /* Begin PBXBuildFile section */
 		1612C074307C5A37004D85FF /* PacerRun.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 1612C06A307C5A36004D85FF /* PacerRun.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		16630523308E1E7500A7B3FD /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 16630522308E1E7500A7B3FD /* MediaPlayer.framework */; };
+		16630527308E2BC300A7B3FD /* PacerFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16630526308E2BC300A7B3FD /* PacerFormatters.swift */; };
+		16630528308E2BC300A7B3FD /* PacerFormatters.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16630526308E2BC300A7B3FD /* PacerFormatters.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -36,6 +39,8 @@
 
 /* Begin PBXFileReference section */
 		1612C06A307C5A36004D85FF /* PacerRun.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PacerRun.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		16630522308E1E7500A7B3FD /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS26.5.sdk/System/Library/Frameworks/MediaPlayer.framework; sourceTree = DEVELOPER_DIR; };
+		16630526308E2BC300A7B3FD /* PacerFormatters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PacerFormatters.swift; sourceTree = "<group>"; };
 		16CBFF75307C189C00F296DF /* PacerPeloton.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PacerPeloton.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -57,6 +62,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				16630523308E1E7500A7B3FD /* MediaPlayer.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,11 +76,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		16630521308E1E7500A7B3FD /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				16630522308E1E7500A7B3FD /* MediaPlayer.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		16CBFF6C307C189C00F296DF = {
 			isa = PBXGroup;
 			children = (
+				16630526308E2BC300A7B3FD /* PacerFormatters.swift */,
 				16CBFF77307C189C00F296DF /* PacerPeloton */,
 				1612C06B307C5A36004D85FF /* PacerRun */,
+				16630521308E1E7500A7B3FD /* Frameworks */,
 				16CBFF76307C189C00F296DF /* Products */,
 			);
 			sourceTree = "<group>";
@@ -197,6 +213,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				16630528308E2BC300A7B3FD /* PacerFormatters.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -204,6 +221,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				16630527308E2BC300A7B3FD /* PacerFormatters.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

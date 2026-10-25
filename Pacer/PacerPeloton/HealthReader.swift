@@ -7,11 +7,12 @@ import HealthKit
 /// 1. HKObserverQuery — registers interest so HealthKit syncs from the Watch
 /// 2. enableBackgroundDelivery — tells HealthKit to deliver updates frequently
 /// 3. Polling every 5s via GCD timer — fallback that doesn't depend on RunLoop
-nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unchecked Sendable {
+@MainActor
+final class HealthReader: NSObject, HKWorkoutSessionDelegate {
     private let store = HKHealthStore()
     private var observerQueries: [HKQuery] = []
     private var anchoredHRQuery: HKAnchoredObjectQuery?
-    private var pollTimer: DispatchSourceTimer?
+    private var pollTask: Task<Void, Never>?
     private var startDate: Date?
     private var lastHRDate: Date?
     private var processedEnergySamples: Set<String> = []
@@ -226,9 +227,9 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             predicate: nil
         ) { [weak self] _, completionHandler, error in
             if let error = error {
-                self?.onError?("HR observer error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("HR observer error: \(error.localizedDescription)") }
             }
-            self?.pollHeartRate()
+            Task { @MainActor in self?.pollHeartRate() }
             completionHandler()
         }
 
@@ -237,9 +238,9 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             predicate: nil
         ) { [weak self] _, completionHandler, error in
             if let error = error {
-                self?.onError?("Energy observer error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("Energy observer error: \(error.localizedDescription)") }
             }
-            self?.pollEnergy()
+            Task { @MainActor in self?.pollEnergy() }
             completionHandler()
         }
 
@@ -258,14 +259,14 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             limit: HKObjectQueryNoLimit
         ) { [weak self] _, samples, _, _, error in
             if let error = error {
-                self?.onError?("Anchored HR error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("Anchored HR error: \(error.localizedDescription)") }
                 return
             }
             self?.handleHRSamples(samples)
         }
         anchored.updateHandler = { [weak self] _, samples, _, _, error in
             if let error = error {
-                self?.onError?("Anchored HR update error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("Anchored HR update error: \(error.localizedDescription)") }
                 return
             }
             self?.handleHRSamples(samples)
@@ -273,17 +274,17 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
         anchoredHRQuery = anchored
         store.execute(anchored)
 
-        // 3. GCD timer polls every 5s as a reliable fallback
-        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .userInitiated))
-        timer.schedule(deadline: .now(), repeating: 2.0)
-        timer.setEventHandler { [weak self] in
-            self?.pollHeartRate()
-            self?.pollEnergy()
+        // 3. Task-based timer polls every 2s as a reliable fallback
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { break }
+                self?.pollHeartRate()
+                self?.pollEnergy()
+            }
         }
-        timer.resume()
-        pollTimer = timer
 
-        // 3. Immediate first poll
+        // Immediate first poll
         pollHeartRate()
         pollEnergy()
 
@@ -294,8 +295,8 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
     }
 
     func stop() {
-        pollTimer?.cancel()
-        pollTimer = nil
+        pollTask?.cancel()
+        pollTask = nil
         if let aq = anchoredHRQuery {
             store.stop(aq)
             anchoredHRQuery = nil
@@ -310,7 +311,7 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
     /// Fetch the single most recent HR sample in HealthKit, regardless of
     /// when it was recorded. This always returns something if the Watch has
     /// ever synced HR data, even if the sample is a few minutes old.
-    func fetchLatestHR(completion: @escaping @Sendable (Double?, Date?) -> Void) {
+    func fetchLatestHR(completion: @escaping @MainActor @Sendable (Double?, Date?) -> Void) {
         let sortByDate = NSSortDescriptor(
             key: HKSampleSortIdentifierEndDate, ascending: false
         )
@@ -321,11 +322,13 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             sortDescriptors: [sortByDate]
         ) { _, samples, _ in
             guard let sample = samples?.first as? HKQuantitySample else {
-                completion(nil, nil)
+                Task { @MainActor in completion(nil, nil) }
                 return
             }
             let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
-            completion(sample.quantity.doubleValue(for: unit), sample.endDate)
+            let hr = sample.quantity.doubleValue(for: unit)
+            let date = sample.endDate
+            Task { @MainActor in completion(hr, date) }
         }
         store.execute(query)
     }
@@ -388,20 +391,24 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
 
     // MARK: - HKWorkoutSessionDelegate
 
-    func workoutSession(_ workoutSession: HKWorkoutSession,
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession,
                         didChangeTo toState: HKWorkoutSessionState,
                         from fromState: HKWorkoutSessionState,
                         date: Date) {
         // No action needed — session just needs to be running
     }
 
-    func workoutSession(_ workoutSession: HKWorkoutSession,
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession,
                         didFailWithError error: Error) {
-        onError?("Workout session error: \(error.localizedDescription)")
+        Task { @MainActor in
+            onError?("Workout session error: \(error.localizedDescription)")
+        }
     }
 
     /// Process HR samples from the anchored query's push delivery.
-    private func handleHRSamples(_ samples: [HKSample]?) {
+    /// Called from HealthKit's background queue — extracts values then
+    /// dispatches to MainActor for safe property access.
+    nonisolated private func handleHRSamples(_ samples: [HKSample]?) {
         guard let samples = samples as? [HKQuantitySample],
               !samples.isEmpty else { return }
         let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
@@ -415,9 +422,13 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             }
         }
         guard let best = latest else { return }
-        if let lastDate = lastHRDate, best.endDate <= lastDate { return }
-        lastHRDate = best.endDate
-        onHeartRate?(best.quantity.doubleValue(for: unit), best.endDate)
+        let hr = best.quantity.doubleValue(for: unit)
+        let date = best.endDate
+        Task { @MainActor [weak self] in
+            if let lastDate = self?.lastHRDate, date <= lastDate { return }
+            self?.lastHRDate = date
+            self?.onHeartRate?(hr, date)
+        }
     }
 
     // MARK: - Polling
@@ -445,16 +456,18 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             sortDescriptors: [sortByDate]
         ) { [weak self] _, samples, error in
             if let error = error {
-                self?.onError?("HR poll error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("HR poll error: \(error.localizedDescription)") }
                 return
             }
             guard let sample = samples?.first as? HKQuantitySample else { return }
-            if let lastDate = self?.lastHRDate, sample.endDate <= lastDate { return }
-            self?.lastHRDate = sample.endDate
             let unit = HKUnit.count().unitDivided(by: HKUnit.minute())
-            self?.onHeartRate?(
-                sample.quantity.doubleValue(for: unit), sample.endDate
-            )
+            let hr = sample.quantity.doubleValue(for: unit)
+            let date = sample.endDate
+            Task { @MainActor in
+                if let lastDate = self?.lastHRDate, date <= lastDate { return }
+                self?.lastHRDate = date
+                self?.onHeartRate?(hr, date)
+            }
         }
         store.execute(query)
     }
@@ -474,22 +487,26 @@ nonisolated final class HealthReader: NSObject, HKWorkoutSessionDelegate, @unche
             sortDescriptors: [sortByDate]
         ) { [weak self] _, samples, error in
             if let error = error {
-                self?.onError?("Energy poll error: \(error.localizedDescription)")
+                Task { @MainActor in self?.onError?("Energy poll error: \(error.localizedDescription)") }
                 return
             }
             guard let samples = samples as? [HKQuantitySample],
                   !samples.isEmpty else { return }
             let unit = HKUnit.kilocalorie()
-            // Deliver each new sample with its own end date so the ride can
-            // ignore calories that were burned while the ride was paused.
-            for sample in samples.reversed() {   // oldest first
-                let id = sample.uuid.uuidString
-                guard self?.processedEnergySamples.contains(id) == false
-                else { continue }
-                self?.processedEnergySamples.insert(id)
-                let kcal = sample.quantity.doubleValue(for: unit)
-                if kcal > 0 {
-                    self?.onEnergy?(kcal, sample.endDate)
+            // Extract values on this thread, mutate state on MainActor
+            let extracted = samples.reversed().map { sample in
+                (id: sample.uuid.uuidString,
+                 kcal: sample.quantity.doubleValue(for: unit),
+                 date: sample.endDate)
+            }
+            Task { @MainActor in
+                for item in extracted {
+                    guard self?.processedEnergySamples.contains(item.id) == false
+                    else { continue }
+                    self?.processedEnergySamples.insert(item.id)
+                    if item.kcal > 0 {
+                        self?.onEnergy?(item.kcal, item.date)
+                    }
                 }
             }
         }

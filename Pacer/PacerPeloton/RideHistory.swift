@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 /// A single elevation sample recorded during a ride.
 struct ElevationSample: Codable {
@@ -64,7 +65,8 @@ struct RideRecord: Codable, Identifiable {
 }
 
 /// Persists ride records as JSON in the app's Documents directory.
-final class RideStore {
+@MainActor
+final class RideStore: ObservableObject {
     static let shared = RideStore()
 
     private let fileURL: URL = {
@@ -72,7 +74,7 @@ final class RideStore {
         return docs.appendingPathComponent("ride_history.json")
     }()
 
-    private(set) var rides: [RideRecord] = []
+    @Published private(set) var rides: [RideRecord] = []
 
     private init() { load() }
 

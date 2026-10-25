@@ -125,6 +125,8 @@ enum CadenceAnalyzer {
             guard let re = run.runningEconomy else { continue }
             for pair in re.spmCCIPairs {
                 guard pair.spm >= 100 && pair.spm <= 250 && pair.cci > 0 else { continue }
+                // Prefer stable pairs; include legacy data (isStable == nil) for backward compat
+                guard pair.isStable ?? true else { continue }
                 allPairs.append((spm: pair.spm, cci: pair.cci))
 
                 // Classify by speed if available; fall back to run-level avg

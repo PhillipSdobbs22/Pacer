@@ -2,7 +2,11 @@
 //  PaceSplitAnnouncer.swift
 //  PacerRun
 //
-//  Announces audio pace splits every 3 minutes during a workout.
+//  Speaks audio pace callouts when triggered by the
+//  RunningEconomyTracker's stability-gated or manual intervals.
+//  No longer owns a timer — interval timing is driven by the
+//  stability gate in RunningEconomyTracker.
+//
 //  Uses AVSpeechSynthesizer (available on watchOS 3+).
 //
 //  Callout structure (segmented with deliberate pauses):
@@ -24,10 +28,7 @@ final class PaceSplitAnnouncer {
 
     // MARK: - Configuration
 
-    /// Interval between audio splits (seconds).  Default 180 = 3 minutes.
-    var intervalSeconds: TimeInterval = 180
-
-    /// Set to false to silence splits mid-workout without removing the timer.
+    /// Set to false to silence splits mid-workout.
     var isEnabled: Bool = true
 
     /// Speech rate multiplier relative to system default.
@@ -37,43 +38,30 @@ final class PaceSplitAnnouncer {
     // MARK: - Private
 
     private let synthesizer = AVSpeechSynthesizer()
-    private var splitTimer: Timer?
     private var lastAnnouncedSplit: Int = 0   // count of splits announced
 
     // MARK: - Lifecycle
 
-    /// Call when the workout starts or resumes.
+    /// Call when the workout starts.
     func start() {
         lastAnnouncedSplit = 0
         configureAudioSession()
-        startTimer()
     }
 
-    /// Call when the workout pauses — stops the timer so paused time
-    /// doesn't count toward the 3-minute interval.
+    /// Call when the workout pauses.
     func pause() {
-        stopTimer()
         synthesizer.stopSpeaking(at: .immediate)
     }
 
     /// Call when the workout resumes after a pause.
     func resume() {
         configureAudioSession()
-        startTimer()
     }
 
     /// Call when the workout ends.
     func stop() {
-        stopTimer()
         synthesizer.stopSpeaking(at: .immediate)
         lastAnnouncedSplit = 0
-    }
-
-    /// Stops the repeating split timer without cancelling any
-    /// in-progress speech.  Use this before `announceSummary()`
-    /// so the final callout plays to completion.
-    func stopTimerOnly() {
-        stopTimer()
     }
 
     // MARK: - Announce on Demand (called by the timer)
@@ -334,32 +322,4 @@ final class PaceSplitAnnouncer {
         }
     }
 
-    // MARK: - Timer
-
-    private func startTimer() {
-        stopTimer()
-        splitTimer = Timer.scheduledTimer(
-            withTimeInterval: intervalSeconds,
-            repeats: true
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.timerFired()
-            }
-        }
-    }
-
-    private func stopTimer() {
-        splitTimer?.invalidate()
-        splitTimer = nil
-    }
-
-    /// Called by the repeating timer.  The ViewModel hooks into this
-    /// to supply current stats — see integration in WatchPaceViewModel.
-    private func timerFired() {
-        onSplitDue?()
-    }
-
-    /// Closure the ViewModel sets so the announcer can pull live stats
-    /// without a tight coupling.
-    var onSplitDue: (() -> Void)?
 }

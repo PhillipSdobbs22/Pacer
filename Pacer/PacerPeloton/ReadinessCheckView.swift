@@ -339,7 +339,7 @@ struct ReadinessCheckView: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ZStack {
                 Color.black.ignoresSafeArea()
 
@@ -391,7 +391,7 @@ struct ReadinessCheckView: View {
             }
             .padding()
             .background(Color.white.opacity(0.08))
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
 
             Text("Measures your autonomic readiness\nand recommends which ghosts to race.")
                 .font(.subheadline)
@@ -404,7 +404,7 @@ struct ReadinessCheckView: View {
                 .multilineTextAlignment(.center)
                 .padding(10)
                 .background(Color.white.opacity(0.08))
-                .cornerRadius(10)
+                .clipShape(.rect(cornerRadius: 10))
 
             Spacer()
 
@@ -417,7 +417,7 @@ struct ReadinessCheckView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(Color.green)
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
             }
             .padding(.horizontal)
 
@@ -547,7 +547,7 @@ struct ReadinessCheckView: View {
             }
             .padding()
             .background(Color.white.opacity(0.08))
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
 
             if !vm.missingPhases.isEmpty {
                 Text("Phases with no readings will use your baseline, and this check won't change your baselines.")
@@ -567,7 +567,7 @@ struct ReadinessCheckView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(Color.yellow)
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
             }
             .padding(.horizontal)
 
@@ -580,7 +580,7 @@ struct ReadinessCheckView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(Color.green)
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
             }
             .padding(.horizontal)
 
@@ -630,7 +630,7 @@ struct ReadinessCheckView: View {
             }
             .padding()
             .background(Color.white.opacity(0.08))
-            .cornerRadius(16)
+            .clipShape(.rect(cornerRadius: 16))
 
             // Baselines context
             let baselines = ReadinessStore.shared.baselines
@@ -657,7 +657,7 @@ struct ReadinessCheckView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
                     .background(colorForLevel(check.level))
-                    .cornerRadius(14)
+                    .clipShape(.rect(cornerRadius: 14))
             }
             .padding(.horizontal)
 

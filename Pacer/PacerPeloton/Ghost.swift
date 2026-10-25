@@ -109,9 +109,6 @@ final class Ghost: ObservableObject, Identifiable {
     }
 
     private static func dateLabel(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .short
-        fmt.timeStyle = .short
-        return "Ride \(fmt.string(from: date))"
+        "Ride \(PacerFormatters.shortDateTime.string(from: date))"
     }
 }

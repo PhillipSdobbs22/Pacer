@@ -113,8 +113,8 @@ final class WorkoutManager: NSObject, ObservableObject {
         let date = latest.endDate
 
         // Update Watch UI
-        Task { @MainActor in
-            WorkoutManager.shared.currentHR = hr
+        Task { @MainActor [weak self] in
+            self?.currentHR = hr
         }
 
         // Send to iPhone via WatchConnectivity
@@ -147,8 +147,8 @@ extension WorkoutManager: HKWorkoutSessionDelegate {
         didFailWithError error: Error
     ) {
         print("Workout session error: \(error)")
-        Task { @MainActor in
-            WorkoutManager.shared.stopWorkout()
+        Task { @MainActor [weak self] in
+            self?.stopWorkout()
         }
     }
 }

@@ -10,7 +10,8 @@
 import Foundation
 import WatchConnectivity
 
-final class WatchSessionManager: NSObject, @unchecked Sendable {
+@MainActor
+final class WatchSessionManager: NSObject {
     static let shared = WatchSessionManager()
 
     private override init() {
@@ -59,7 +60,7 @@ final class WatchSessionManager: NSObject, @unchecked Sendable {
 // MARK: - WCSessionDelegate
 
 extension WatchSessionManager: WCSessionDelegate {
-    nonisolated func session(
+    nonisolated func session(  // Called from WCSession's background queue
         _ session: WCSession,
         activationDidCompleteWith activationState: WCSessionActivationState,
         error: Error?

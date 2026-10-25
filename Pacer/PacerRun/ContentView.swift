@@ -16,22 +16,25 @@ struct ContentView: View {
     @State private var displayOn = true
     @State private var showTrashConfirm = false
     @State private var displayTimer: Timer?
+    @State private var dotPulsing = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        Group {
-            if vm.showSummary {
-                summaryView
-            } else if vm.showFeelingPrompt {
-                FeelingRatingView { rating in
-                    vm.save(withRating: rating)
+        NavigationStack {
+            Group {
+                if vm.showSummary {
+                    summaryView
+                } else if vm.showFeelingPrompt {
+                    FeelingRatingView { rating in
+                        vm.save(withRating: rating)
+                    }
+                } else if vm.isPaused {
+                    stoppedView
+                } else if vm.isActive {
+                    activeView
+                } else {
+                    startView
                 }
-            } else if vm.isPaused {
-                stoppedView
-            } else if vm.isActive {
-                activeView
-            } else {
-                startView
             }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
@@ -178,8 +181,22 @@ struct ContentView: View {
     }
 
     private var gaugeScreen: some View {
+        TabView {
+            // ── Page 1: Gauge + INTRVL + pulsing dot ──
+            gaugePage
+
+            // ── Page 2: Elapsed timer + PAUSE + music controls ──
+            controlsPage
+        }
+        .tabViewStyle(.verticalPage)
+        .onTapGesture { wakeDisplay() }
+    }
+
+    // MARK: - Page 1: Gauge
+
+    private var gaugePage: some View {
         ZStack {
-            // Gauge — fills screen but respects safe area
+            // Gauge — fills screen
             PaceGaugeView(
                 currentSpeed: vm.currentSpeedMPH,
                 avgSpeed: vm.avgSpeedMPH,
@@ -188,17 +205,6 @@ struct ContentView: View {
                 gaugeMax: vm.gaugeMax
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // Elapsed time — centered inside arc, semi-transparent, stretched wide
-            Text(vm.elapsedFormatted)
-                .font(.system(size: 54, weight: .bold,
-                              design: .rounded))
-                .foregroundColor(.white)
-                .opacity(0.30)
-                .minimumScaleFactor(0.5)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
-                .offset(y: 16)
 
             // HR zone bar — top of screen
             VStack {
@@ -209,27 +215,90 @@ struct ContentView: View {
             }
             .offset(y: -10)
 
-            // END button bottom-center — red filled capsule
+            // Pulsing "recording" dot — top right
+            VStack {
+                HStack {
+                    Spacer()
+                    Circle()
+                        .fill(vm.isManualRecording
+                              ? Color.red : Color.green)
+                        .frame(width: 8, height: 8)
+                        .opacity(dotPulsing ? 1.0 : 0.3)
+                        .animation(
+                            .easeInOut(duration: 1.0)
+                                .repeatForever(autoreverses: true),
+                            value: dotPulsing
+                        )
+                        .onAppear { dotPulsing = true }
+                }
+                .padding(.trailing, 6)
+                .padding(.top, 2)
+                Spacer()
+            }
+
+            // INTRVL button — bottom of screen (separated from PAUSE)
             VStack {
                 Spacer()
                 Button {
-                    displayTimer?.invalidate()
-                    vm.pause()
+                    vm.toggleManualInterval()
                 } label: {
-                    Text("PAUSE")
+                    Text(vm.isManualRecording ? "STOP" : "INTRVL")
                         .font(.system(size: 13, weight: .bold,
                                       design: .rounded))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 12)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(Color.yellow.opacity(0.8))
+                                .fill(vm.isManualRecording
+                                      ? Color.red.opacity(0.8)
+                                      : Color.cyan.opacity(0.8))
                         )
                 }
                 .buttonStyle(.plain)
                 .padding(.bottom, 2)
             }
+        }
+    }
+
+    // MARK: - Page 2: Controls
+
+    private var controlsPage: some View {
+        VStack(spacing: 12) {
+            Spacer()
+
+            // Elapsed timer — more visible at 0.50 opacity
+            Text(vm.elapsedFormatted)
+                .font(.system(size: 48, weight: .bold,
+                              design: .rounded))
+                .foregroundColor(.white)
+                .opacity(0.50)
+                .minimumScaleFactor(0.5)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity)
+
+            // Music controls — opens system Now Playing screen
+            MusicControlButton()
+
+            // Pause workout
+            Button {
+                displayTimer?.invalidate()
+                vm.pause()
+            } label: {
+                Text("PAUSE")
+                    .font(.system(size: 15, weight: .bold,
+                                  design: .rounded))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule()
+                            .fill(Color.yellow)
+                    )
+            }
+            .buttonStyle(.plain)
+
+            Spacer()
         }
     }
 

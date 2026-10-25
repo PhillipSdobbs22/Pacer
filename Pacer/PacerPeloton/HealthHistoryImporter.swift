@@ -338,10 +338,7 @@ final class HealthHistoryImporter: ObservableObject {
 
     /// Format workout date for display.
     static func dateString(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .short
-        return fmt.string(from: date)
+        PacerFormatters.mediumDateTime.string(from: date)
     }
 
     enum HealthImportError: LocalizedError {

@@ -10,11 +10,22 @@
 import Foundation
 import Combine
 
-/// A single SPM-CCI pair from one 3-minute interval.
+/// A single SPM-CCI pair from one stability-gated or manual interval.
 struct SPMCCIPairRecord: Codable {
     let spm: Double
     let cci: Double
     let avgSpeedMPH: Double?       // interval speed for pace-band analysis (nil for legacy data)
+    let isStable: Bool?            // true for stability-gated auto intervals (nil for legacy data)
+    let source: String?            // "auto" or "manual" (nil for legacy data)
+}
+
+/// A single time-series snapshot (recorded every ~10 s on the Watch).
+struct TimeSeriesSampleRecord: Codable {
+    let elapsed: Double       // seconds since workout start
+    let spm: Double
+    let hr: Double
+    let speedMPH: Double
+    let isStable: Bool
 }
 
 /// Running Economy data embedded in a run record.
@@ -28,6 +39,7 @@ struct RunREData: Codable {
     let intervalCount: Int
     let overallAvgSPM: Double
     let spmCCIPairs: [SPMCCIPairRecord]
+    let timeSeries: [TimeSeriesSampleRecord]?   // nil for legacy runs
 }
 
 /// A completed run received from the Watch Pacer app.
@@ -124,7 +136,7 @@ final class RunStore: ObservableObject {
     /// Delete a run by its ISO-8601 date string (used when the watch
     /// sends a delete request — the watch doesn't know the UUID).
     func deleteByDate(_ dateString: String) {
-        guard let target = ISO8601DateFormatter().date(from: dateString) else {
+        guard let target = PacerFormatters.iso8601.date(from: dateString) else {
             print("[RunStore] deleteByDate: invalid date string")
             return
         }
@@ -151,7 +163,7 @@ final class RunStore: ObservableObject {
     /// Creates a RunRecord from the raw dictionary sent by the Watch.
     static func record(from info: [String: Any]) -> RunRecord? {
         guard let dateString = info["date"] as? String,
-              let date = ISO8601DateFormatter().date(from: dateString) else {
+              let date = PacerFormatters.iso8601.date(from: dateString) else {
             print("[RunStore] Missing or invalid date")
             return nil
         }
@@ -188,7 +200,25 @@ final class RunStore: ObservableObject {
                     guard let spm = dict["spm"] as? Double,
                           let cci = dict["cci"] as? Double else { return nil }
                     let speed = dict["avgSpeedMPH"] as? Double  // nil for legacy data
-                    return SPMCCIPairRecord(spm: spm, cci: cci, avgSpeedMPH: speed)
+                    let isStable = dict["isStable"] as? Bool    // nil for legacy data
+                    let source = dict["source"] as? String      // nil for legacy data
+                    return SPMCCIPairRecord(spm: spm, cci: cci, avgSpeedMPH: speed,
+                                           isStable: isStable, source: source)
+                }
+            }
+
+            // Parse time-series data if present
+            var tsSamples: [TimeSeriesSampleRecord]?
+            if let rawTS = reDict["timeSeries"] as? [[String: Any]] {
+                tsSamples = rawTS.compactMap { dict in
+                    guard let elapsed = dict["elapsed"] as? Double,
+                          let spm = dict["spm"] as? Double,
+                          let hr = dict["hr"] as? Double,
+                          let speed = dict["speedMPH"] as? Double,
+                          let stable = dict["isStable"] as? Bool else { return nil }
+                    return TimeSeriesSampleRecord(elapsed: elapsed, spm: spm,
+                                                  hr: hr, speedMPH: speed,
+                                                  isStable: stable)
                 }
             }
 
@@ -201,7 +231,8 @@ final class RunStore: ObservableObject {
                 trend: trend,
                 intervalCount: intervalCount,
                 overallAvgSPM: overallAvgSPM,
-                spmCCIPairs: pairs
+                spmCCIPairs: pairs,
+                timeSeries: tsSamples
             )
         }
 

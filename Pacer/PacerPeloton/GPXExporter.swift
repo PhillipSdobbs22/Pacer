@@ -277,8 +277,7 @@ enum GPXExporter {
         hrSamples: [(bpm: Double, date: Date)],
         cadenceSamples: [(spm: Double, date: Date)] = []
     ) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let iso = PacerFormatters.iso8601Fractional
 
         let startTime = iso.string(from: workout.startDate)
         let runName = "Run \(DateFormatter.localizedString(from: run.date, dateStyle: .medium, timeStyle: .short))"
@@ -415,9 +414,7 @@ enum GPXExporter {
     }
 
     private static func gpxFileName(for run: RunRecord) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd_HHmmss"
-        return "run_\(f.string(from: run.date)).gpx"
+        "run_\(PacerFormatters.fileTimestamp.string(from: run.date)).gpx"
     }
 
     private static func escapeXML(_ string: String) -> String {

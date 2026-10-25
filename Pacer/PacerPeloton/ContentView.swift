@@ -823,10 +823,7 @@ struct HistoryTab: View {
     }
 
     private func dateString(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .short
-        return fmt.string(from: date)
+        PacerFormatters.mediumDateTime.string(from: date)
     }
 
     private func durationString(_ t: TimeInterval) -> String {
@@ -1917,10 +1914,7 @@ struct GhostPickerView: View {
     }
 
     private func dateString(_ date: Date) -> String {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        fmt.timeStyle = .short
-        return fmt.string(from: date)
+        PacerFormatters.mediumDateTime.string(from: date)
     }
 
     private func durationString(_ t: TimeInterval) -> String {

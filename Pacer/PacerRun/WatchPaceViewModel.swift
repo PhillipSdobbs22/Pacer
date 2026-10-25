@@ -41,6 +41,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     @Published var summaryAvgStepsPerMin: Double = 0
     @Published var feelingRating: Int = 0          // 1=BAD, 2=NOT BAD, 3=GREAT
     @Published var showFeelingPrompt = false
+    @Published var isManualRecording = false
 
     // MARK: - Gauge Settings (user-adjustable before start)
 
@@ -101,19 +102,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     private var previousStepCount: Double = 0
     private var previousStepTime: Date?
 
-    // MARK: - Private — Interval Tracking (for split announcements)
-
-    /// Snapshots taken at the last split boundary, used to compute
-    /// interval-only averages for the next announcement.
-    private var lastSplitStepCount: Double = 0
-    private var lastSplitDistanceMiles: Double = 0
-    private var lastSplitElapsedSeconds: TimeInterval = 0
-
-    /// Samples collected between splits for interval averaging.
-    private var intervalSpeedSamples: [Double] = []
-    private var intervalHRSamples: [Double] = []
-
-    /// All HR samples across the entire session (persists across splits).
+    /// All HR samples across the entire session (for session-wide avg).
     private var allSessionHRSamples: [Double] = []
 
     // MARK: - Init
@@ -125,72 +114,48 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         locationManager.activityType = .fitness
         locationManager.distanceFilter = 5
 
-        // Wire the split announcer callback to pull live stats
-        splitAnnouncer.onSplitDue = { [weak self] in
+        // Wire the stability-gated interval callback
+        reTracker.onStableIntervalComplete = { [weak self] result in
             guard let self else { return }
-            self.announceIntervalSplit()
+            self.announceIntervalResult(result)
+        }
+
+        // Wire the manual interval callback
+        reTracker.onManualIntervalComplete = { [weak self] result in
+            guard let self else { return }
+            self.announceIntervalResult(result)
         }
     }
 
-    // MARK: - Interval Split Announcement
+    // MARK: - Interval Announcement (driven by RunningEconomyTracker)
 
-    /// Computes interval pace (min/mile), HR zone, and steps/min,
-    /// then speaks the compact callout.
-    private func announceIntervalSplit() {
-        // Interval elapsed time (seconds in this interval only)
-        let intervalElapsed = elapsedSeconds - lastSplitElapsedSeconds
+    /// Speaks a callout for a completed interval (auto or manual).
+    private func announceIntervalResult(_ result: REIntervalResult) {
+        let intervalPaceSeconds: Double? = result.avgSpeedMPH > 0.01
+            ? 3600.0 / result.avgSpeedMPH : nil
+        let hrZone = heartRateZone(bpm: result.avgHR)
 
-        // Interval steps per minute
-        let intervalSteps = totalStepCount - lastSplitStepCount
-        let intervalMinutes = intervalElapsed / 60.0
-        let intervalStepsPerMin: Double
-        if intervalMinutes > 0 {
-            intervalStepsPerMin = intervalSteps / intervalMinutes
-        } else {
-            intervalStepsPerMin = 0
-        }
-
-        // Interval pace in seconds per mile (time ÷ distance)
-        let intervalDistanceMiles = totalDistanceMiles - lastSplitDistanceMiles
-        let intervalPaceSeconds: Double?
-        if intervalDistanceMiles > 0.01 {
-            // seconds per mile = interval seconds ÷ interval miles
-            intervalPaceSeconds = intervalElapsed / intervalDistanceMiles
-        } else {
-            intervalPaceSeconds = nil  // not enough distance to compute pace
-        }
-
-        // Interval average heart rate (from HR samples collected this interval)
-        let intervalAvgHR: Double
-        if !intervalHRSamples.isEmpty {
-            intervalAvgHR = intervalHRSamples.reduce(0, +)
-                / Double(intervalHRSamples.count)
-        } else {
-            intervalAvgHR = heartRate
-        }
-
-        // HR zone (standard 5-zone model based on % of maxHR)
-        let hrZone = heartRateZone(bpm: intervalAvgHR)
-
-        // Close the RE interval and capture its result for the announcement
-        let reResult = reTracker.closeInterval()
-
-        // Segmented callout with pauses, repetition, CCI, and summary
         splitAnnouncer.announce(
             intervalPaceSeconds: intervalPaceSeconds,
             intervalHRZone: hrZone,
-            intervalAvgStepsPerMin: intervalStepsPerMin,
-            intervalCCI: reResult?.cci,
-            cciTrend: reTracker.latestTrend,
+            intervalAvgStepsPerMin: result.avgSPM,
+            intervalCCI: result.cci,
+            cciTrend: result.trend,
             targetPaceSeconds: 3600.0 / goalPace
         )
+    }
 
-        // Reset interval accumulators for next period
-        lastSplitStepCount = totalStepCount
-        lastSplitDistanceMiles = totalDistanceMiles
-        lastSplitElapsedSeconds = elapsedSeconds
-        intervalSpeedSamples.removeAll()
-        intervalHRSamples.removeAll()
+    // MARK: - Manual Interval Toggle
+
+    /// Called when the user taps the INTERVAL button on the watch face.
+    func toggleManualInterval() {
+        if reTracker.isManualIntervalActive {
+            reTracker.stopManualInterval()
+            isManualRecording = false
+        } else {
+            reTracker.startManualInterval()
+            isManualRecording = true
+        }
     }
 
     // MARK: - HR Zone Calculation
@@ -263,14 +228,8 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         routeLocations = []
         previousStepCount = 0
         previousStepTime = nil
-
-        // Reset interval accumulators
-        lastSplitStepCount = 0
-        lastSplitDistanceMiles = 0
-        lastSplitElapsedSeconds = 0
-        intervalSpeedSamples.removeAll()
-        intervalHRSamples.removeAll()
         allSessionHRSamples.removeAll()
+        isManualRecording = false
 
         // Reset summary properties
         summaryElapsedSeconds = 0
@@ -366,8 +325,9 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         currentSpeedMPH = 0
         isPaused = true
 
-        // Pause audio splits so paused time doesn't count
+        // Pause audio splits and stability gate
         splitAnnouncer.pause()
+        reTracker.pause()
     }
 
     // MARK: - Resume
@@ -395,9 +355,10 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
         startClockTimer()
         isPaused = false
 
-        // Resume audio splits
+        // Resume audio splits and stability gate
         splitAnnouncer.isEnabled = audioSplitsEnabled
         splitAnnouncer.resume()
+        reTracker.resume()
     }
 
     // MARK: - Feeling Prompt (shown before save)
@@ -473,9 +434,8 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             overallCCI: summaryOverallCCI
         )
 
-        // Stop the split timer but let speech finish playing.
-        // (splitAnnouncer.stop() would cancel the summary immediately.)
-        splitAnnouncer.stopTimerOnly()
+        // No timer to stop — the announcer is now event-driven.
+        // Speech for the summary announcement will play to completion.
 
         // Save the running activity file to the app's documents directory
         saveActivityFile()
@@ -532,9 +492,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     /// Saves a JSON activity file to the app's documents directory.
     /// File name: "run_YYYY-MM-dd_HHmmss.json"
     private func saveActivityFile() {
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HHmmss"
-        let timestamp = dateFormatter.string(from: startDate ?? Date())
+        let timestamp = PacerFormatters.fileTimestamp.string(from: startDate ?? Date())
         let fileName = "run_\(timestamp).json"
 
         // Format pace as "M:SS" string for the file
@@ -550,7 +508,7 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
 
         // Build the activity dictionary
         let activity: [String: Any] = [
-            "date": ISO8601DateFormatter().string(from: startDate ?? Date()),
+            "date": PacerFormatters.iso8601.string(from: startDate ?? Date()),
             "elapsedSeconds": summaryElapsedSeconds,
             "elapsedFormatted": elapsedFormatted,
             "distanceMiles": round(totalDistanceMiles * 100) / 100,
@@ -574,7 +532,20 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
                 [
                     "spm": round(pair.spm * 10) / 10,
                     "cci": round(pair.cci * 10) / 10,
-                    "avgSpeedMPH": round(pair.avgSpeedMPH * 100) / 100
+                    "avgSpeedMPH": round(pair.avgSpeedMPH * 100) / 100,
+                    "source": pair.source,
+                    "isStable": pair.isStable
+                ]
+            }
+
+            // Time-series snapshots (every ~10 s) for post-run analysis
+            let tsSamples: [[String: Any]] = re.timeSeries.map { s in
+                [
+                    "elapsed": round(s.elapsed * 10) / 10,
+                    "spm": round(s.spm * 10) / 10,
+                    "hr": round(s.hr * 10) / 10,
+                    "speedMPH": round(s.speedMPH * 100) / 100,
+                    "isStable": s.isStable
                 ]
             }
 
@@ -587,7 +558,8 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
                 "trend": re.finalTrend.rawValue,
                 "intervalCount": re.intervalCount,
                 "overallAvgSPM": round(re.overallAvgSPM),
-                "spmCCIPairs": pairs
+                "spmCCIPairs": pairs,
+                "timeSeries": tsSamples
             ]
         }
         if let normCCI = weightNormalizedCCI {
@@ -742,8 +714,6 @@ extension WatchPaceViewModel: HKLiveWorkoutBuilderDelegate {
                 if let bpm = stats?.mostRecentQuantity()?
                     .doubleValue(for: unit) {
                     self.heartRate = bpm
-                    // Collect sample for interval averaging
-                    self.intervalHRSamples.append(bpm)
                     // Collect for session-wide averaging
                     self.allSessionHRSamples.append(bpm)
                     // Feed to RE tracker
@@ -808,10 +778,7 @@ extension WatchPaceViewModel: CLLocationManagerDelegate {
         let speedMS = max(0, loc.speed)
         currentSpeedMPH = speedMS * 2.23694
 
-        // Collect speed sample for interval averaging
-        intervalSpeedSamples.append(currentSpeedMPH)
-
-        // Feed to RE tracker
+        // Feed to RE tracker (stability gate handles interval averaging)
         reTracker.addSpeedSample(currentSpeedMPH)
 
         if let last = lastLocation {
