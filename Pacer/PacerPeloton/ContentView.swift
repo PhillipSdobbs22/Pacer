@@ -62,6 +62,7 @@ struct ClimbTab: View {
     @AppStorage("userSex") private var userSex: Int = 0
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
     @AppStorage("maxHROverride") private var maxHROverride: Bool = false
+    @AppStorage("restingHR") private var restingHR: Int = 60
 
     @State private var showReadinessCheck = false
     @Environment(\.scenePhase) private var scenePhase
@@ -201,11 +202,13 @@ struct ClimbTab: View {
         .onChange(of: userSex) { _, _ in syncClimbSettings() }
         .onChange(of: maxHRManual) { _, _ in syncClimbSettings() }
         .onChange(of: maxHROverride) { _, _ in syncClimbSettings() }
+        .onChange(of: restingHR) { _, _ in syncClimbSettings() }
     }
 
-    /// Set maxHR on the view model — it auto-selects the climb mode.
+    /// Set maxHR and restHR on the view model — it auto-selects the climb mode.
     private func syncClimbSettings() {
         vm.maxHR = effectiveMaxHR
+        vm.restHR = restingHR
     }
 
     private var avgFtPerMin: Double {
@@ -213,31 +216,83 @@ struct ClimbTab: View {
         return vm.displayedFt / (vm.elapsed / 60.0)
     }
 
-    // MARK: - Zone indicator
+    // MARK: - Zone indicator (continuous gradient bar)
+
+    /// HRR fraction (0…1) for the current heart rate.
+    private var hrrFraction: Double {
+        guard let hr = vm.heartRate, effectiveMaxHR > restingHR, hr > restingHR else { return 0 }
+        return min(Double(hr - restingHR) / Double(effectiveMaxHR - restingHR), 1.0)
+    }
 
     private var zoneIndicator: some View {
-        HStack(spacing: 6) {
-            ForEach(HRZone.allCases, id: \.rawValue) { zone in
-                let active = vm.currentZone == zone
-                VStack(spacing: 2) {
-                    Text(effectiveMaxHR > 0 ? zone.bpmRangeShort(maxHR: effectiveMaxHR) : "Z\(zone.rawValue)")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                    Text(zone.label)
-                        .font(.system(size: 8))
-                    Text("\(Int(zone.feetPerMin))")
-                        .font(.system(size: 9, weight: .bold))
-                    Text("ft/m")
-                        .font(.system(size: 7))
+        VStack(spacing: 6) {
+            // Climb rate readout
+            HStack {
+                if let hr = vm.heartRate, hr > 0 {
+                    Text("\(hr) bpm")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
                 }
-                .foregroundStyle(active ? navy : .white.opacity(0.5))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-                .background(active ? zoneColor(zone) : Color(white: 0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                Spacer()
+                Text(String(format: "%.1f ft/min", vm.currentClimbRate))
+                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                    .foregroundStyle(yellow)
+            }
+
+            // Continuous gradient bar with marker
+            GeometryReader { geo in
+                let barWidth = geo.size.width
+                let markerX = hrrFraction * barWidth
+
+                ZStack(alignment: .leading) {
+                    // Gradient track
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.3, green: 0.6, blue: 1.0),   // blue
+                                    Color(red: 0.3, green: 0.85, blue: 0.4),  // green
+                                    Color(red: 1.0, green: 0.85, blue: 0.0),  // yellow
+                                    Color(red: 1.0, green: 0.5, blue: 0.15),  // orange
+                                    Color(red: 1.0, green: 0.2, blue: 0.15)   // red
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(height: 14)
+
+                    // Sliding marker
+                    if vm.heartRate != nil && vm.heartRate! > 0 {
+                        Circle()
+                            .fill(Color.white)
+                            .frame(width: 18, height: 18)
+                            .shadow(color: .black.opacity(0.4), radius: 2, x: 0, y: 1)
+                            .offset(x: max(0, min(markerX - 9, barWidth - 18)))
+                            .animation(.easeOut(duration: 0.3), value: hrrFraction)
+                    }
+                }
+            }
+            .frame(height: 20)
+
+            // Zone labels under the bar
+            HStack {
+                Text("Rest")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
+                Spacer()
+                if let zone = vm.currentZone {
+                    Text(zone.label)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                Spacer()
+                Text("Max")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.5))
             }
         }
+        .padding(.horizontal, 4)
     }
 
     private func zoneColor(_ zone: HRZone) -> Color {
@@ -844,13 +899,14 @@ struct SettingsTab: View {
     @AppStorage("userSex") private var userSex: Int = 0
     @AppStorage("maxHRManual") private var maxHRManual: Int = 0
     @AppStorage("maxHROverride") private var maxHROverride: Bool = false
+    @AppStorage("restingHR") private var restingHR: Int = 60
 
     // Rabbit & Hound ghost state
     @State private var rabbitEnabled = true
-    @State private var rabbitPace: Double = 12
+    @State private var rabbitPace: Double = 15
     @State private var rabbitCustom = false   // true = user overrode auto value
     @State private var houndEnabled = true
-    @State private var houndPace: Double = 6
+    @State private var houndPace: Double = 4
     @State private var houndCustom = false
 
     // Customize sheets
@@ -1026,24 +1082,60 @@ struct SettingsTab: View {
                     }
 
                     Section {
-                        ForEach(HRZone.allCases, id: \.rawValue) { zone in
+                        HStack {
+                            Text("Resting HR")
+                            Spacer()
+                            TextField("bpm", value: $restingHR, format: .number)
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 60)
+                            Text("bpm")
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("Used for the Heart Rate Reserve (HRR) climb formula. A typical resting HR is 50–80 bpm. Lower values mean a wider reserve range.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } header: {
+                        Text("Resting Heart Rate")
+                    }
+
+                    Section {
+                        // Reference table showing sample HRR% → ft/min from the continuous formula
+                        let samplePoints: [(label: String, hrrPct: Double)] = [
+                            ("Rest", 0.0),
+                            ("20% HRR", 0.2),
+                            ("40% HRR", 0.4),
+                            ("60% HRR", 0.6),
+                            ("80% HRR", 0.8),
+                            ("100% HRR", 1.0)
+                        ]
+                        ForEach(samplePoints, id: \.label) { point in
+                            let rate = 1.5 * exp(3.5 * point.hrrPct)
+                            let bpm: String = {
+                                if effectiveMaxHR > 0 && restingHR > 0 {
+                                    let hr = Int(Double(restingHR) + point.hrrPct * Double(effectiveMaxHR - restingHR))
+                                    return "\(hr) bpm"
+                                }
+                                return "\(Int(point.hrrPct * 100))%"
+                            }()
                             HStack {
-                                Text("Z\(zone.rawValue)")
+                                Text(point.label)
                                     .font(.system(.body, design: .rounded).bold())
-                                    .frame(width: 30)
-                                Text(zone.label)
-                                    .frame(width: 70, alignment: .leading)
-                                Text(effectiveMaxHR > 0 ? zone.bpmRangeLabel(maxHR: effectiveMaxHR) : zone.rangeLabel)
+                                    .frame(width: 80, alignment: .leading)
+                                Text(bpm)
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Text("\(Int(zone.feetPerMin)) ft/min")
+                                Text(String(format: "%.1f ft/min", rate))
                                     .font(.system(.body, design: .rounded).bold())
                                     .foregroundStyle(yellow)
                             }
                             .font(.subheadline)
                         }
+                        Text("Climb rate uses a continuous exponential curve (Karvonen HRR). Small HR increases at high effort produce large pace jumps — mimicking real altitude climbing.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     } header: {
-                        Text("HR Zones")
+                        Text("Climb Rate Reference")
                     }
 
                 Section("Body weight") {

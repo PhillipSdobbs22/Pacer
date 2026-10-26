@@ -29,6 +29,17 @@ enum ClimbMath {
         let meters = joules * efficiency / (massKg * 9.81)
         return meters * 3.28084
     }
+
+    /// Continuous exponential climb rate using Heart Rate Reserve (Karvonen method).
+    /// Returns feet per minute — shallow at low effort, steep near lactate threshold.
+    /// Range: ~1.5 ft/min (rest) to ~49.5 ft/min (maxHR).
+    static func climbRate(hr: Double, maxHR: Double, restHR: Double = 60) -> Double {
+        guard maxHR > restHR, hr > restHR else { return 1.5 }
+        let hrrFraction = min((hr - restHR) / (maxHR - restHR), 1.0)
+        let baseRate = 1.5
+        let k = 3.5
+        return baseRate * exp(k * hrrFraction)
+    }
 }
 
 enum HRZone: Int, CaseIterable {
@@ -170,6 +181,12 @@ final class RideViewModel: ObservableObject {
     // HR Zone mode state
     @Published var currentZone: HRZone? = nil
 
+    /// Continuous climb rate from the exponential HRR formula (ft/min).
+    @Published private(set) var currentClimbRate: Double = 0
+
+    /// Resting heart rate for HRR calculation. Set from Settings (HealthKit or manual).
+    var restHR: Int = 60
+
     // Sprint / Rest state
     @Published var isSprinting = false
     @Published var sprintTimeRemaining: Double = 0
@@ -227,6 +244,11 @@ final class RideViewModel: ObservableObject {
     // For accurate HR zone accumulation between ticks.
     private var lastTickDate: Date?
 
+    // MARK: - Live HR from Watch via WatchConnectivity
+    /// Subscription to PhoneConnectivityProvider.latestHR (live Bluetooth HR).
+    /// This is the PRIMARY HR source — HealthKit polling is the fallback.
+    private var wcHRCancellable: AnyCancellable?
+
     func requestAccess() async {
         do {
             try await reader.requestAccess()
@@ -266,6 +288,7 @@ final class RideViewModel: ObservableObject {
         lastSampleTime = 0
         lastTickDate = nil
         currentZone = nil
+        currentClimbRate = 0
         isSprinting = false
         sprintTimeRemaining = 0
         isResting = false
@@ -287,6 +310,22 @@ final class RideViewModel: ObservableObject {
         for g in ghosts { g.reset() }
         isRunning = true
 
+        // --- Primary HR: live from Watch over WatchConnectivity ---
+        // Subscribe to PhoneConnectivityProvider's live HR stream (~5s updates
+        // over Bluetooth). This eliminates the manual Health-app-sync workaround.
+        wcHRCancellable?.cancel()
+        let provider = PhoneConnectivityProvider.shared
+        wcHRCancellable = provider.$latestHR
+            .combineLatest(provider.$latestDate)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] hr, date in
+                guard let self, hr > 0, let date else { return }
+                self.receiveHeartRate(hr, date)
+            }
+        // Tell the Watch to start streaming HR samples.
+        provider.requestStartHR()
+
+        // --- Fallback HR: HealthKit polling (in case Watch isn't reachable) ---
         reader.onHeartRate = { [weak self] bpm, date in
             Task { @MainActor in self?.receiveHeartRate(bpm, date) }
         }
@@ -335,6 +374,12 @@ final class RideViewModel: ObservableObject {
         isSprinting = false
         sprintTimeRemaining = 0
         if isResting { resumeExercise() }
+
+        // Stop live HR stream from Watch.
+        wcHRCancellable?.cancel()
+        wcHRCancellable = nil
+        PhoneConnectivityProvider.shared.requestStopHR()
+
         // Show summary so the user can adjust RPE before saving.
         if elapsed > 30, targetFt > 0 {
             showRideSummary = true
@@ -360,7 +405,7 @@ final class RideViewModel: ObservableObject {
             let tickDt = lastTickDate.map { now.timeIntervalSince($0) } ?? 0.5
             elapsed = now.timeIntervalSince(startDate) - totalPausedTime
 
-            // HR Zone climb: accumulate feet based on current zone.
+            // HR Zone climb: continuous exponential rate from HRR formula.
             if climbMode == .hrZone,
                let hr = heartRate, hr > 0, maxHR > 0
             {
@@ -368,12 +413,18 @@ final class RideViewModel: ObservableObject {
                     hr: Double(hr), maxHR: Double(maxHR)
                 )
                 currentZone = zone
+                let rate = ClimbMath.climbRate(
+                    hr: Double(hr), maxHR: Double(maxHR),
+                    restHR: Double(restHR)
+                )
+                currentClimbRate = rate
                 if let lastTick = lastTickDate {
                     let dt = now.timeIntervalSince(lastTick)
-                    targetFt += zone.feetPerMin * dt / 60.0
+                    targetFt += rate * dt / 60.0
                 }
             } else if climbMode == .hrZone {
                 currentZone = nil
+                currentClimbRate = 0
             }
             lastTickDate = now
 
