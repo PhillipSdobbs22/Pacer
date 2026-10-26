@@ -130,19 +130,29 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
     // MARK: - Interval Announcement (driven by RunningEconomyTracker)
 
     /// Speaks a callout for a completed interval (auto or manual).
+    ///
+    /// Wrapped in a Task so the caller (button tap handler or
+    /// HealthKit data callback) returns immediately. Without this,
+    /// the entire chain from stopManualInterval() → callback →
+    /// announce → configureAudioSession → speakSegments runs
+    /// synchronously on the main thread, blocking the UI long
+    /// enough for the watchOS watchdog to kill the app.
     private func announceIntervalResult(_ result: REIntervalResult) {
-        let intervalPaceSeconds: Double? = result.avgSpeedMPH > 0.01
-            ? 3600.0 / result.avgSpeedMPH : nil
-        let hrZone = heartRateZone(bpm: result.avgHR)
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let intervalPaceSeconds: Double? = result.avgSpeedMPH > 0.01
+                ? 3600.0 / result.avgSpeedMPH : nil
+            let hrZone = self.heartRateZone(bpm: result.avgHR)
 
-        splitAnnouncer.announce(
-            intervalPaceSeconds: intervalPaceSeconds,
-            intervalHRZone: hrZone,
-            intervalAvgStepsPerMin: result.avgSPM,
-            intervalCCI: result.cci,
-            cciTrend: result.trend,
-            targetPaceSeconds: 3600.0 / goalPace
-        )
+            self.splitAnnouncer.announce(
+                intervalPaceSeconds: intervalPaceSeconds,
+                intervalHRZone: hrZone,
+                intervalAvgStepsPerMin: result.avgSPM,
+                intervalCCI: result.cci,
+                cciTrend: result.trend,
+                targetPaceSeconds: 3600.0 / self.goalPace
+            )
+        }
     }
 
     // MARK: - Manual Interval Toggle
@@ -425,24 +435,26 @@ final class WatchPaceViewModel: NSObject, ObservableObject {
             summaryOverallCCI = summary.overallCCI
         }
 
-        // ── Speak the end-of-workout summary before stopping the announcer ──
-        splitAnnouncer.announceSummary(
-            elapsedSeconds: summaryElapsedSeconds,
-            overallPaceSeconds: summaryPaceSecondsPerMile,
-            overallHRZone: summaryHRZone,
-            overallAvgStepsPerMin: summaryAvgStepsPerMin,
-            overallCCI: summaryOverallCCI
-        )
-
-        // No timer to stop — the announcer is now event-driven.
-        // Speech for the summary announcement will play to completion.
-
-        // Save the running activity file to the app's documents directory
+        // ── Persist data FIRST so it survives even if TTS causes issues ──
+        // Save the running activity file (writes JSON + transfers to iPhone)
         saveActivityFile()
 
         // Finish workout async — keep session alive until save completes
         Task {
             await finishAndSaveWorkout()
+        }
+
+        // ── Speak the end-of-workout summary AFTER data is safe ──
+        // Wrapped in Task so it doesn't block the save/finish flow.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.splitAnnouncer.announceSummary(
+                elapsedSeconds: self.summaryElapsedSeconds,
+                overallPaceSeconds: self.summaryPaceSecondsPerMile,
+                overallHRZone: self.summaryHRZone,
+                overallAvgStepsPerMin: self.summaryAvgStepsPerMin,
+                overallCCI: summaryOverallCCI
+            )
         }
     }
 

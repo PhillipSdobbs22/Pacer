@@ -24,7 +24,7 @@ import Foundation
 import AVFoundation
 
 @MainActor
-final class PaceSplitAnnouncer {
+final class PaceSplitAnnouncer: NSObject {
 
     // MARK: - Configuration
 
@@ -39,12 +39,16 @@ final class PaceSplitAnnouncer {
 
     private let synthesizer = AVSpeechSynthesizer()
     private var lastAnnouncedSplit: Int = 0   // count of splits announced
+    /// Guards against re-entrant calls (e.g. auto interval fires
+    /// while a manual interval announcement is still being queued).
+    private var isSpeaking = false
 
     // MARK: - Lifecycle
 
     /// Call when the workout starts.
     func start() {
         lastAnnouncedSplit = 0
+        synthesizer.delegate = self
         configureAudioSession()
     }
 
@@ -259,7 +263,9 @@ final class PaceSplitAnnouncer {
             ))
         }
 
-        configureAudioSession()
+        // Audio session is already configured at start()/resume().
+        // Calling configureAudioSession() again here risks blocking
+        // the main thread during the critical save flow.
         speakSegments(segments)
     }
 
@@ -274,11 +280,24 @@ final class PaceSplitAnnouncer {
 
     /// Queues a sequence of speech segments, each with its own pause timing.
     /// AVSpeechSynthesizer plays them in FIFO order.
+    ///
+    /// Re-entrancy safe: if already speaking, the previous announcement
+    /// is cancelled (`.word` boundary avoids the hard `.immediate` stall)
+    /// before the new segments are queued.
     private func speakSegments(_ segments: [SpeechSegment]) {
+        // Cancel any in-progress speech at a word boundary
+        // (.word is less likely to block than .immediate on watchOS)
         if synthesizer.isSpeaking {
-            synthesizer.stopSpeaking(at: .immediate)
+            synthesizer.stopSpeaking(at: .word)
         }
-        for seg in segments {
+
+        // Ensure audio session is active (may have been deactivated
+        // by the system while the user was in NowPlaying).
+        configureAudioSession()
+
+        isSpeaking = true
+
+        for (index, seg) in segments.enumerated() {
             let utterance = AVSpeechUtterance(string: seg.text)
             utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
                 ?? AVSpeechSynthesisVoice(
@@ -288,9 +307,17 @@ final class PaceSplitAnnouncer {
             utterance.volume = 1.0
             utterance.preUtteranceDelay  = seg.preDelay
             utterance.postUtteranceDelay = seg.postDelay
+
+            // Tag the last utterance so didFinish can deactivate audio
+            if index == segments.count - 1 {
+                lastUtteranceID = ObjectIdentifier(utterance)
+            }
             synthesizer.speak(utterance)
         }
     }
+
+    /// Tracks the last utterance so we know when to deactivate audio.
+    private var lastUtteranceID: ObjectIdentifier?
 
     /// Converts pace in seconds/mile to a short spoken form.
     /// 594 → "9 54" (spoken as "nine fifty-four")
@@ -315,11 +342,52 @@ final class PaceSplitAnnouncer {
     private func configureAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .voicePrompt)
+            // Use .duckOthers so speech mixes with (and ducks) music
+            // instead of fighting NowPlaying for exclusive audio access.
+            // Without this, setActive(true) can block the main thread
+            // indefinitely when the user has music controls open.
+            try session.setCategory(
+                .playback,
+                mode: .voicePrompt,
+                options: [.duckOthers, .interruptSpokenAudioAndMixWithOthers]
+            )
             try session.setActive(true)
         } catch {
             print("[PaceSplit] Audio session error: \(error)")
         }
     }
 
+    /// Deactivates the audio session after speech finishes,
+    /// restoring other audio (music) to full volume.
+    private func deactivateAudioSession() {
+        do {
+            try AVAudioSession.sharedInstance().setActive(
+                false,
+                options: .notifyOthersOnDeactivation
+            )
+        } catch {
+            print("[PaceSplit] Audio deactivation error: \(error)")
+        }
+    }
+
+}
+
+// MARK: - AVSpeechSynthesizerDelegate
+
+extension PaceSplitAnnouncer: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        didFinish utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in
+            // When the last queued utterance finishes, deactivate the
+            // audio session so music volume returns to normal.
+            let id = ObjectIdentifier(utterance)
+            if id == lastUtteranceID {
+                isSpeaking = false
+                lastUtteranceID = nil
+                deactivateAudioSession()
+            }
+        }
+    }
 }
