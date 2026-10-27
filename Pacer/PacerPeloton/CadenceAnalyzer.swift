@@ -3,9 +3,12 @@
 //  PacerPeloton
 //
 //  Cross-activity SPM bucket analysis with pace-band segmentation.
-//  Splits intervals into Walking (≤4 mph) and Jogging (>4 mph)
-//  pace bands, then finds the optimal SPM for lowest CCI in each.
-//  Uses ALL activities (no rating filter) — CCI is objective.
+//  Uses 10-second time-series samples for accurate per-sample
+//  pace-band classification: Walking (≤4.2 mph) / Jogging (>4.2 mph).
+//  Each stable sample's own speed determines its band, avoiding the
+//  averaging problem of 3-minute intervals that blend walk+jog data.
+//  Falls back to interval-based analysis for legacy runs without
+//  time-series data.  Uses ALL activities — CCI is objective.
 //  Within-run delta analysis refines the recommendation when
 //  cross-run data is sparse.
 //
@@ -16,13 +19,13 @@ import Foundation
 
 /// Pace band for segmenting intervals.
 enum PaceBand: String, CaseIterable {
-    case walking = "Walking"       // ≤ 4.0 mph
-    case jogging = "Jogging"       // > 4.0 mph
+    case walking = "Walking"       // ≤ 4.2 mph
+    case jogging = "Jogging"       // > 4.2 mph
 
     /// The speed threshold separating walking from jogging.
-    static let threshold: Double = 4.0
+    static let threshold: Double = 4.2
 
-    /// Classify an interval by its average speed.
+    /// Classify a sample or interval by its speed.
     static func classify(_ speedMPH: Double) -> PaceBand {
         speedMPH <= threshold ? .walking : .jogging
     }
@@ -38,7 +41,7 @@ enum CadenceConfidence: String {
     case high          = "High confidence"
 }
 
-/// A single interval-to-interval delta within one run.
+/// A single sample-to-sample or interval-to-interval delta within one run.
 struct IntervalDelta {
     let fromSPM: Double
     let toSPM: Double
@@ -100,14 +103,32 @@ enum CadenceAnalyzer {
     /// Width of each SPM bucket (e.g. 5 SPM per bucket).
     private static let bucketWidth: Double = 5.0
 
-    /// Minimum SPM change between intervals to count as a meaningful shift.
+    /// Minimum SPM change between samples/intervals to count as a meaningful shift.
     private static let minDeltaSPM: Double = 3.0
 
+    /// Skip the first interval of each legacy run — HR lag during warmup
+    /// produces artificially low CCI.  Not needed for time-series path
+    /// because unstable warmup samples are filtered by isStable.
+    private static let warmupIntervalsToSkip = 1
+
+    // MARK: - Main Entry Point
+
     /// Analyze all runs and return optimal cadence zones per pace band.
+    ///
+    /// **Primary path** — time-series samples (10 s granularity):
+    /// Each stable sample is classified individually by its own speedMPH,
+    /// and CCI is computed from that sample's HR and speed.  This avoids
+    /// the interval-averaging problem where 3-minute intervals that mix
+    /// walking and jogging produce a blended SPM/CCI that belongs to
+    /// neither pace band.
+    ///
+    /// **Legacy fallback** — interval-based SPMCCIPairs:
+    /// Runs recorded before time-series collection (timeSeries == nil)
+    /// use the original interval-based path with per-interval avgSpeedMPH.
     static func analyze(runs: [RunRecord]) -> CadenceAnalysisResult {
 
         // ──────────────────────────────────────────────
-        // 1. COLLECT ALL INTERVALS (no rating filter)
+        // 1. COLLECT SAMPLES (time-series preferred)
         // ──────────────────────────────────────────────
 
         let runsWithRE = runs.filter { $0.runningEconomy != nil }
@@ -123,23 +144,51 @@ enum CadenceAnalyzer {
 
         for run in runsWithRE {
             guard let re = run.runningEconomy else { continue }
-            for pair in re.spmCCIPairs {
-                guard pair.spm >= 100 && pair.spm <= 250 && pair.cci > 0 else { continue }
-                // Prefer stable pairs; include legacy data (isStable == nil) for backward compat
-                guard pair.isStable ?? true else { continue }
-                allPairs.append((spm: pair.spm, cci: pair.cci))
 
-                // Classify by speed if available; fall back to run-level avg
-                let speed = pair.avgSpeedMPH ?? run.avgSpeedMPH
-                let band = PaceBand.classify(speed)
+            if let samples = re.timeSeries, !samples.isEmpty {
+                // ── TIME-SERIES PATH ──
+                // Each 10-second sample is its own data point.
+                for sample in samples {
+                    // Must be stable, with valid sensor readings
+                    guard sample.isStable else { continue }
+                    guard sample.spm >= 100 && sample.spm <= 250 else { continue }
+                    guard sample.hr > 0 && sample.speedMPH > 0 else { continue }
 
-                switch band {
-                case .walking:
-                    walkingPairs.append((spm: pair.spm, cci: pair.cci))
-                    walkingRunIDs.insert(run.id)
-                case .jogging:
-                    joggingPairs.append((spm: pair.spm, cci: pair.cci))
-                    joggingRunIDs.insert(run.id)
+                    let cci = sample.hr / sample.speedMPH
+                    let pair = (spm: sample.spm, cci: cci)
+
+                    allPairs.append(pair)
+
+                    // Classify by this sample's own speed — no averaging
+                    let band = PaceBand.classify(sample.speedMPH)
+                    switch band {
+                    case .walking:
+                        walkingPairs.append(pair)
+                        walkingRunIDs.insert(run.id)
+                    case .jogging:
+                        joggingPairs.append(pair)
+                        joggingRunIDs.insert(run.id)
+                    }
+                }
+            } else {
+                // ── LEGACY FALLBACK (interval-based) ──
+                for (index, pair) in re.spmCCIPairs.enumerated() {
+                    guard pair.spm >= 100 && pair.spm <= 250 && pair.cci > 0 else { continue }
+                    guard pair.isStable ?? true else { continue }
+                    guard index >= warmupIntervalsToSkip else { continue }
+
+                    allPairs.append((spm: pair.spm, cci: pair.cci))
+
+                    guard let intervalSpeed = pair.avgSpeedMPH else { continue }
+                    let band = PaceBand.classify(intervalSpeed)
+                    switch band {
+                    case .walking:
+                        walkingPairs.append((spm: pair.spm, cci: pair.cci))
+                        walkingRunIDs.insert(run.id)
+                    case .jogging:
+                        joggingPairs.append((spm: pair.spm, cci: pair.cci))
+                        joggingRunIDs.insert(run.id)
+                    }
                 }
             }
         }
@@ -153,11 +202,23 @@ enum CadenceAnalyzer {
         var allDeltas: [IntervalDelta] = []
 
         for run in runsWithRE {
-            let segmented = extractDeltasSegmented(from: run)
-            walkingDeltas.append(contentsOf: segmented.walking)
-            joggingDeltas.append(contentsOf: segmented.jogging)
-            allDeltas.append(contentsOf: segmented.walking)
-            allDeltas.append(contentsOf: segmented.jogging)
+            guard let re = run.runningEconomy else { continue }
+
+            if let samples = re.timeSeries, !samples.isEmpty {
+                // Time-series delta extraction
+                let segmented = extractDeltasFromTimeSeries(samples: samples)
+                walkingDeltas.append(contentsOf: segmented.walking)
+                joggingDeltas.append(contentsOf: segmented.jogging)
+                allDeltas.append(contentsOf: segmented.walking)
+                allDeltas.append(contentsOf: segmented.jogging)
+            } else {
+                // Legacy interval-based delta extraction
+                let segmented = extractDeltasSegmented(from: run)
+                walkingDeltas.append(contentsOf: segmented.walking)
+                joggingDeltas.append(contentsOf: segmented.jogging)
+                allDeltas.append(contentsOf: segmented.walking)
+                allDeltas.append(contentsOf: segmented.jogging)
+            }
         }
 
         // ──────────────────────────────────────────────
@@ -306,9 +367,89 @@ enum CadenceAnalyzer {
         )
     }
 
-    // MARK: - Delta Extraction (Segmented)
+    // MARK: - Delta Extraction (Time-Series)
 
-    /// Extract deltas from a run, segmented into walking and jogging bands.
+    /// Extract deltas from time-series samples, segmented by pace band.
+    ///
+    /// Walks through stable samples and forms delta pairs between
+    /// consecutive samples *within the same pace band* where the SPM
+    /// shift is ≥ minDeltaSPM.  Because each sample has its own speed,
+    /// a walk→jog transition simply resets the "previous" anchor for
+    /// each band — no cross-band deltas are produced.
+    private static func extractDeltasFromTimeSeries(
+        samples: [TimeSeriesSampleRecord]
+    ) -> (walking: [IntervalDelta], jogging: [IntervalDelta]) {
+
+        var walkingDeltas: [IntervalDelta] = []
+        var joggingDeltas: [IntervalDelta] = []
+
+        // Track last stable sample seen in each band
+        var lastWalking: (spm: Double, cci: Double)?
+        var lastJogging: (spm: Double, cci: Double)?
+
+        for sample in samples {
+            guard sample.isStable else {
+                // Unstable sample breaks continuity in both bands
+                lastWalking = nil
+                lastJogging = nil
+                continue
+            }
+            guard sample.spm >= 100 && sample.spm <= 250 else { continue }
+            guard sample.hr > 0 && sample.speedMPH > 0 else { continue }
+
+            let cci = sample.hr / sample.speedMPH
+            let current = (spm: sample.spm, cci: cci)
+            let band = PaceBand.classify(sample.speedMPH)
+
+            switch band {
+            case .walking:
+                if let prev = lastWalking {
+                    let deltaSPM = current.spm - prev.spm
+                    if abs(deltaSPM) >= minDeltaSPM {
+                        let deltaCCI = current.cci - prev.cci
+                        walkingDeltas.append(IntervalDelta(
+                            fromSPM: prev.spm,
+                            toSPM: current.spm,
+                            deltaSPM: deltaSPM,
+                            deltaCCI: deltaCCI,
+                            midpointSPM: (prev.spm + current.spm) / 2.0,
+                            gradient: deltaCCI / deltaSPM
+                        ))
+                    }
+                }
+                lastWalking = current
+                // Switching to walking resets jogging continuity
+                lastJogging = nil
+
+            case .jogging:
+                if let prev = lastJogging {
+                    let deltaSPM = current.spm - prev.spm
+                    if abs(deltaSPM) >= minDeltaSPM {
+                        let deltaCCI = current.cci - prev.cci
+                        joggingDeltas.append(IntervalDelta(
+                            fromSPM: prev.spm,
+                            toSPM: current.spm,
+                            deltaSPM: deltaSPM,
+                            deltaCCI: deltaCCI,
+                            midpointSPM: (prev.spm + current.spm) / 2.0,
+                            gradient: deltaCCI / deltaSPM
+                        ))
+                    }
+                }
+                lastJogging = current
+                // Switching to jogging resets walking continuity
+                lastWalking = nil
+            }
+        }
+
+        return (walking: walkingDeltas, jogging: joggingDeltas)
+    }
+
+    // MARK: - Delta Extraction (Segmented — Legacy)
+
+    /// Extract deltas from a run using interval-based SPMCCIPairs.
+    /// Used as fallback for runs without time-series data.
+    /// Skips deltas involving warmup intervals (HR lag artifacts).
     private static func extractDeltasSegmented(
         from run: RunRecord
     ) -> (walking: [IntervalDelta], jogging: [IntervalDelta]) {
@@ -319,7 +460,11 @@ enum CadenceAnalyzer {
         var walkingDeltas: [IntervalDelta] = []
         var joggingDeltas: [IntervalDelta] = []
 
-        for i in 0..<(pairs.count - 1) {
+        // Start after warmup intervals so neither endpoint is a warmup artifact
+        let startIndex = warmupIntervalsToSkip
+        guard startIndex < pairs.count - 1 else { return ([], []) }
+
+        for i in startIndex..<(pairs.count - 1) {
             let from = pairs[i]
             let to = pairs[i + 1]
 
@@ -344,9 +489,13 @@ enum CadenceAnalyzer {
                 gradient: gradient
             )
 
-            // Classify delta by the average speed of both intervals
-            let fromSpeed = from.avgSpeedMPH ?? run.avgSpeedMPH
-            let toSpeed = to.avgSpeedMPH ?? run.avgSpeedMPH
+            // Classify delta by per-interval speed of both intervals.
+            // If either interval lacks its own speed, skip band classification
+            // to prevent run-level fallback from misclassifying the delta.
+            guard let fromSpeed = from.avgSpeedMPH,
+                  let toSpeed = to.avgSpeedMPH else {
+                continue
+            }
             let avgSpeed = (fromSpeed + toSpeed) / 2.0
             let band = PaceBand.classify(avgSpeed)
 
